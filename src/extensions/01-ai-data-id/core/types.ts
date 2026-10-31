@@ -4,16 +4,21 @@
  * Separated into two layers:
  *   - **Client types**: used internally across the extension (`ModelQuotaInfo`, `QuotaSnapshot`, etc.)
  *   - **Server types**: mirror the raw JSON shape from the Antigravity language server API
+ *     (supports both legacy `GetUserStatus` and Antigravity 2.0 `RetrieveUserQuotaSummary`)
+ *
+ * @updatedBy Enrique H. Hernandez (@EnriqueHH) <poke.henri@gmail.com>
  */
 
 // ── Client-side types ────────────────────────────────────────────────
 
-/** Quota information for a single AI model, already normalized. */
+/** Quota information for a single AI model or quota bucket, already normalized. */
 export interface ModelQuotaInfo {
-	/** Human-readable model name (e.g. "Gemini 3.1 Pro (High)") */
+	/** Human-readable model name (e.g. "Gemini 3.8 Pro (High)" or "Gemini Models (5h)") */
 	label: string;
-	/** Machine-readable model identifier */
+	/** Machine-readable model or bucket identifier */
 	modelId: string;
+	/** Optional quota window type when sourced from bucket summary (e.g. "5h", "weekly") */
+	window?: string;
 	/** Remaining quota as a fraction [0, 1]. `undefined` = unlimited. */
 	remainingFraction?: number;
 	/** Remaining quota as a percentage [0, 100]. `undefined` = unlimited. */
@@ -83,11 +88,19 @@ export interface ServerUserStatusResponse {
 			planInfo: {
 				teamsTier: string;
 				planName: string;
-				monthlyPromptTokens: number;
-				monthlyFlowTokens: number;
+				monthlyPromptTokens?: number;
+				monthlyFlowTokens?: number;
+				monthlyPromptCredits?: number;
+				monthlyFlowCredits?: number;
 			};
-			availablePromptTokens: number;
-			availableFlowTokens: number;
+			availablePromptTokens?: number;
+			availableFlowTokens?: number;
+			availablePromptCredits?: number;
+			availableFlowCredits?: number;
+		};
+		userTier?: {
+			id?: string;
+			name?: string;
 		};
 		cascadeModelConfigData?: {
 			clientModelConfigs: ServerClientModelConfig[];
@@ -95,12 +108,41 @@ export interface ServerUserStatusResponse {
 	};
 }
 
+/** Raw quota bucket from the Antigravity 2.0 RetrieveUserQuotaSummary endpoint. */
+export interface ServerQuotaBucket {
+	bucketId?: string;
+	displayName?: string;
+	window?: string;
+	remainingFraction?: number;
+	resetTime?: string;
+}
+
+/** Raw model-family quota group from the Antigravity 2.0 RetrieveUserQuotaSummary endpoint. */
+export interface ServerQuotaGroup {
+	displayName?: string;
+	buckets?: ServerQuotaBucket[];
+}
+
+/** Full server response shape for the RetrieveUserQuotaSummary endpoint. */
+export interface ServerQuotaSummaryResponse {
+	response?: {
+		groups?: ServerQuotaGroup[];
+		planName?: string;
+		teamsTier?: string;
+	};
+	groups?: ServerQuotaGroup[];
+	planName?: string;
+	teamsTier?: string;
+}
+
 // ── Shared utility types ─────────────────────────────────────────────
 
 /** Information needed to connect to the local Antigravity process. */
 export interface ProcessInfo {
-	/** HTTPS port the language server is listening on */
+	/** HTTP/HTTPS port the language server is listening on */
 	connectPort: number;
 	/** CSRF token extracted from the process command line */
 	csrfToken: string;
+	/** Protocol verified during port probing ('http' or 'https') */
+	protocol?: 'http' | 'https';
 }

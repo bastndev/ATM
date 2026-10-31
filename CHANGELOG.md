@@ -15,6 +15,17 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
 <!-- --- -->
 
 ---
+## [2.0.4] - 2026-10-31
+
+### Added & Improved (Contribution by **Enrique H. Hernandez** — `@EnriqueHH`)
+
+- **AI Data (`01-ai-data-id`) — Antigravity 2.0 Compatibility**:
+  - Added support for the Antigravity 2.0 `RetrieveUserQuotaSummary` RPC endpoint (5-hour and weekly quota buckets) with automatic fallback to `GetUserStatus`.
+  - Expanded `ProcessFinder` to detect modern `language_server` / `language_server.exe` binaries, `--csrf-token` / `--csrf_token` variants, and direct `--extension_server_port` CLI flags.
+  - Added support and color palettes for modern model families including **Gemini 4 Argon**, **Gemini 3.8 Pro/Flash**, and **Claude 3.7/4.6**.
+  - Enabled silent background discovery so `AI Data` coexists seamlessly when running Antigravity 2.0 alongside VS Code, Cursor, or Windsurf.
+
+---
 ## [2.0.0] - 2026-07-14
 
 ### Added

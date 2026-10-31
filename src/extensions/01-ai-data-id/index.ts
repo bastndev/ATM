@@ -1,3 +1,11 @@
+/**
+ * @module ai-data-id
+ * Entry point for the Antigravity AI Data status bar monitor.
+ * Supports both standalone Antigravity IDE and parallel Antigravity 2.0 / `agy` CLI setups.
+ *
+ * @updatedBy Enrique H. Hernandez (@EnriqueHH) <poke.henri@gmail.com>
+ */
+
 import * as vscode from 'vscode';
 import { ProcessFinder } from './core/process-finder';
 import { QuotaManager } from './core/quota-manager';
@@ -32,7 +40,19 @@ type PollingTier = 'normal' | 'alert' | 'exhausted';
  * Excludes Flash/fast models — they have much larger allocations and
  * rarely determine whether real coding work is possible.
  */
-const KEY_MODEL_KEYWORDS = ['pro', 'ultra', 'claude', 'sonnet', 'opus', 'gpt-oss', 'llama', 'deepseek'];
+const KEY_MODEL_KEYWORDS = [
+	'pro',
+	'ultra',
+	'argon',
+	'gemini models',
+	'claude',
+	'sonnet',
+	'opus',
+	'gpt-oss',
+	'gpt',
+	'llama',
+	'deepseek',
+];
 
 /**
  * Resolves the adaptive polling tier from the latest snapshot.
@@ -42,7 +62,7 @@ const KEY_MODEL_KEYWORDS = ['pro', 'ultra', 'claude', 'sonnet', 'opus', 'gpt-oss
  *   - `alert`     → any key model ≤ 20% or exhausted: poll every 15 s.
  *   - `normal`    → everything healthy: poll every 60 s.
  *
- * Key models = PRO basket (Gemini Pro) + THIRD_PARTY basket (Claude, GPT-OSS).
+ * Key models = PRO basket (Gemini Pro / Argon) + THIRD_PARTY basket (Claude, GPT-OSS).
  * Gemini Flash is intentionally excluded from alert triggering.
  */
 function resolvePollingTier(snapshot: QuotaSnapshot, globalPct: number): PollingTier {
@@ -58,18 +78,38 @@ function resolvePollingTier(snapshot: QuotaSnapshot, globalPct: number): Polling
 }
 
 /**
+ * Checks whether the current host IDE or environment is explicitly Antigravity.
+ */
+function detectAntigravityHost(): boolean {
+	const appName = (vscode.env.appName || '').toLowerCase();
+	const uriScheme = (vscode.env.uriScheme || '').toLowerCase();
+	if (
+		appName.includes('antigravity')
+		|| appName.includes('agy')
+		|| uriScheme.includes('antigravity')
+		|| uriScheme.includes('agy')
+	) {
+		return true;
+	}
+	return Boolean(
+		process.env.ANTIGRAVITY_CLI_PATH
+		|| process.env.ANTIGRAVITY_AGENT
+		|| process.env.AGY_ACCOUNT,
+	);
+}
+
+/**
  * Activates the AI Data status bar extension.
- * Only runs when the host IDE is Antigravity.
+ * Runs immediately when the host IDE is Antigravity, and also auto-discovers
+ * Antigravity 2.0 / `agy` background processes when running in sibling editors.
  *
  * @param context - VS Code extension context for lifecycle management.
  */
 export function activateDataId(context: vscode.ExtensionContext): void {
-	const appName = vscode.env.appName || '';
-	const isAntigravity = appName.toLowerCase().includes('antigravity');
+	let isAntigravity = detectAntigravityHost();
+	let isStatusBarVisible = isAntigravity;
 
-	vscode.commands.executeCommand('setContext', 'atm.isAntigravity', isAntigravity);
-
-	if (!isAntigravity) { return; }
+	void vscode.commands.executeCommand('setContext', 'atm.isAntigravity', isAntigravity);
 
 	// ── Status bar item ──────────────────────────────────────────────
 
@@ -77,7 +117,9 @@ export function activateDataId(context: vscode.ExtensionContext): void {
 	statusBarItem.text = `| ${ICON_DEFAULT} AI Data`;
 	statusBarItem.command = 'atm.dataId.showConsumption';
 	statusBarItem.tooltip = new vscode.MarkdownString('*Loading AI usage data...*');
-	statusBarItem.show();
+	if (isStatusBarVisible) {
+		statusBarItem.show();
+	}
 
 	// ── Core services ────────────────────────────────────────────────
 
@@ -92,6 +134,18 @@ export function activateDataId(context: vscode.ExtensionContext): void {
 	let lastSnapshot: QuotaSnapshot | null = null;
 	let fetchTimer: NodeJS.Timeout | null = null;
 	let lastReportedPercentage = 100; // Stores the last engineered percentage
+
+	/** Ensures the status bar item and context key are enabled once Antigravity is detected. */
+	function ensureStatusBarVisible(): void {
+		if (!isAntigravity) {
+			isAntigravity = true;
+			void vscode.commands.executeCommand('setContext', 'atm.isAntigravity', true);
+		}
+		if (!isStatusBarVisible) {
+			isStatusBarVisible = true;
+			statusBarItem.show();
+		}
+	}
 
 	/** Builds a hash of the snapshot to detect meaningful changes. */
 	function computeSnapshotHash(snapshot: QuotaSnapshot): string {
@@ -119,17 +173,23 @@ export function activateDataId(context: vscode.ExtensionContext): void {
 
 			// If not connected yet, detect the Antigravity process
 			if (!connectionInfo) {
-				const processInfo = await processFinder.detectProcessInfo();
+				const retries = isAntigravity || forceRefresh ? undefined : 1;
+				const processInfo = await processFinder.detectProcessInfo(retries);
 				if (processInfo) {
+					ensureStatusBarVisible();
 					quotaManager.init(processInfo.connectPort, processInfo.csrfToken);
+					quotaManager.init(processInfo.connectPort, processInfo.csrfToken, processInfo.protocol);
 					statusBarItem.text = `| ${ICON_DEFAULT} AI Data`;
 					statusBarItem.color = undefined;
 				} else {
-					statusBarItem.text = `| ${ICON_ERROR} AI Data`;
-					statusBarItem.color = new vscode.ThemeColor('errorForeground');
-					statusBarItem.tooltip = new vscode.MarkdownString(
-						'Could not connect to the local Antigravity AI process.'
-					);
+					if (isAntigravity || forceRefresh) {
+						ensureStatusBarVisible();
+						statusBarItem.text = `| ${ICON_ERROR} AI Data`;
+						statusBarItem.color = new vscode.ThemeColor('errorForeground');
+						statusBarItem.tooltip = new vscode.MarkdownString(
+							'Could not connect to the local Antigravity AI process.'
+						);
+					}
 					return false;
 				}
 			}
@@ -193,8 +253,8 @@ export function activateDataId(context: vscode.ExtensionContext): void {
 				}, 0);
 			} else {
 				// Adaptive 3-Tier Polling:
-				// Only schedule if the window is focused (performance optimization).
-				if (vscode.window.state.focused) {
+				// Only schedule if the window is focused and Antigravity is active (performance optimization).
+				if (vscode.window.state.focused && isAntigravity) {
 					const tier = lastSnapshot
 						? resolvePollingTier(lastSnapshot, lastReportedPercentage)
 						: 'normal';
