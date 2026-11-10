@@ -52,11 +52,11 @@ async function appendPatterns(uri: vscode.Uri, patterns: string[]): Promise<numb
 }
 
 export async function addResourcesToIgnoreFile(
-	ignoreFileName: '.atmignore' | '.prettierignore',
 	resourceUri: vscode.Uri | undefined,
 	selectedUris: readonly vscode.Uri[] | undefined,
 	outputChannel: vscode.OutputChannel,
 ): Promise<void> {
+	const ignoreFileName = '.atmignore';
 	const resources = selectedUris?.length ? selectedUris : resourceUri ? [resourceUri] : [];
 	if (resources.length === 0) {
 		vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: no file or folder selected'));
@@ -69,9 +69,7 @@ export async function addResourcesToIgnoreFile(
 		const folder = vscode.workspace.getWorkspaceFolder(resource);
 		if (!folder) { continue; }
 		const document = vscode.workspace.textDocuments.find((open) => open.uri.toString() === resource.toString());
-		const setting = ignoreFileName === '.atmignore'
-			? vscode.workspace.getConfiguration(undefined, document ?? resource).get<string>(formatterSettingKeys.ignorePath, '.atmignore')
-			: '.prettierignore';
+		const setting = vscode.workspace.getConfiguration(undefined, document ?? resource).get<string>(formatterSettingKeys.ignorePath, '.atmignore');
 		const ignoreUri = vscode.Uri.file(path.resolve(folder.uri.fsPath, setting));
 		const group = byWorkspace.get(ignoreUri.toString()) ?? { ignoreUri, resources: [] };
 		group.resources.push(resource);

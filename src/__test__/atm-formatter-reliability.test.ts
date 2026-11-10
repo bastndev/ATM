@@ -11,15 +11,20 @@ suite('ATM Formatter — Ignore Reliability', () => {
 	setup(() => { workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-formatter-')); });
 	teardown(() => { fs.rmSync(workspaceRoot, { recursive: true, force: true }); });
 
-	test('honors both .atmignore and .prettierignore independently', () => {
+	test('only applies the configured ATM ignore file', () => {
 		fs.writeFileSync(path.join(workspaceRoot, '.atmignore'), 'generated/\n!vendor/\n');
 		fs.writeFileSync(path.join(workspaceRoot, '.prettierignore'), 'vendor/\n!generated/\n');
 		assert.ok(isFileIgnored(path.join(workspaceRoot, 'generated/app.ts'), workspaceRoot, '.atmignore'));
-		assert.ok(isFileIgnored(path.join(workspaceRoot, 'vendor/app.ts'), workspaceRoot, '.atmignore'));
+		assert.strictEqual(isFileIgnored(path.join(workspaceRoot, 'vendor/app.ts'), workspaceRoot, '.atmignore'), false);
 		assert.strictEqual(isFileIgnored(path.join(workspaceRoot, 'src/app.ts'), workspaceRoot, '.atmignore'), false);
 	});
 
 	test('missing ignore files allow formatting', () => {
+		assert.strictEqual(isFileIgnored(path.join(workspaceRoot, 'app.ts'), workspaceRoot, '.atmignore'), false);
+	});
+
+	test('does not fall back to .prettierignore when .atmignore is missing', () => {
+		fs.writeFileSync(path.join(workspaceRoot, '.prettierignore'), '*\n');
 		assert.strictEqual(isFileIgnored(path.join(workspaceRoot, 'app.ts'), workspaceRoot, '.atmignore'), false);
 	});
 

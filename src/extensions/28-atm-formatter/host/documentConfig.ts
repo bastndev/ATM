@@ -37,7 +37,7 @@ export async function inspectDocument(document: vscode.TextDocument, force = fal
 		if (!formatterService.isLanguageSupported(document.languageId)) { return result('unsupported', 'Unsupported language'); }
 		const settings = vscode.workspace.getConfiguration(undefined, document);
 		if (!force && !settings.get<boolean>(formatterSettingKeys.enable, true)) { return result('disabled', 'Disabled in settings'); }
-		if (!force && isDocumentIgnored(document)) { return result('ignored', 'Excluded by ' + getIgnorePath(document) + ' or .prettierignore'); }
+		if (!force && isDocumentIgnored(document)) { return result('ignored', 'Excluded by ' + getIgnorePath(document)); }
 		const trusted = vscode.workspace.isTrusted;
 		const resolved = document.uri.scheme === 'file'
 			? await resolveConfigForFile(document.uri.fsPath, trusted)

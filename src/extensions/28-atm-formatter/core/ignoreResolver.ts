@@ -16,20 +16,13 @@ export function isPathIgnored(filePath: string, baseDirectory: string, patterns:
 }
 
 export function isFileIgnored(filePath: string, workspaceRoot: string, ignorePath: string): boolean {
-	const ignorePaths = new Set([
-		path.resolve(workspaceRoot, ignorePath),
-		path.join(workspaceRoot, '.prettierignore'),
-	]);
-
-	return [...ignorePaths].some((rulesPath) => {
-		let content: string;
-		try {
-			content = fs.readFileSync(rulesPath, 'utf-8');
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code === 'ENOENT') { return false; }
-			throw error;
-		}
-		// Keep each file independent: a negation in one cannot undo another's exclusion.
-		return isPathIgnored(filePath, path.dirname(rulesPath), content.split(/\r?\n/));
-	});
+	const rulesPath = path.resolve(workspaceRoot, ignorePath);
+	let content: string;
+	try {
+		content = fs.readFileSync(rulesPath, 'utf-8');
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code === 'ENOENT') { return false; }
+		throw error;
+	}
+	return isPathIgnored(filePath, path.dirname(rulesPath), content.split(/\r?\n/));
 }

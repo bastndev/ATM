@@ -45,7 +45,7 @@ export class FormatterConfigWatcher implements vscode.Disposable {
 			add(path.dirname(ignorePath), path.basename(ignorePath));
 		}
 		for (const root of roots) {
-			for (const pattern of [...configPatterns, '.atmignore', '.prettierignore']) {
+			for (const pattern of [...configPatterns, '.atmignore']) {
 				add(root, pattern);
 				if (vscode.workspace.workspaceFolders?.some((folder) => folder.uri.fsPath === root)) { add(root, '**/' + pattern); }
 			}

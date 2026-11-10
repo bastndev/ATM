@@ -188,13 +188,13 @@ suite('ATM Formatter — Options Mapper', () => {
 });
 
 suite('ATM Formatter — Ignore Patterns', () => {
-	test('combines .atmignore and .prettierignore patterns', () => {
+	test('reads .atmignore without applying .prettierignore rules', () => {
 		const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-formatter-'));
 		try {
 			fs.writeFileSync(path.join(workspaceRoot, '.atmignore'), '# generated/\ngenerated/\n');
 			fs.writeFileSync(path.join(workspaceRoot, '.prettierignore'), '# vendor/\nvendor/\n');
 			assert.ok(isFileIgnored(path.join(workspaceRoot, 'generated/app.ts'), workspaceRoot, '.atmignore'));
-			assert.ok(isFileIgnored(path.join(workspaceRoot, 'vendor/app.ts'), workspaceRoot, '.atmignore'));
+			assert.strictEqual(isFileIgnored(path.join(workspaceRoot, 'vendor/app.ts'), workspaceRoot, '.atmignore'), false);
 		} finally {
 			fs.rmSync(workspaceRoot, { recursive: true, force: true });
 		}

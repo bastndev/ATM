@@ -356,7 +356,7 @@ You can customize ATM's behavior directly via your VS Code settings. Tweak the e
 - `atm.formatter.printWidth`, `atm.formatter.tabWidth`, `atm.formatter.useTabs`, `atm.formatter.semi`, `atm.formatter.singleQuote`, `atm.formatter.trailingComma` — _Prettier-compatible formatting options._
 - `atm.formatter.ignorePath` — _Path to the ignore file (default <code>.atmignore</code>)._
 
-ATM ignore files use Git ignore syntax, including `**`, root-anchored paths, and `!` exceptions. Patterns are relative to the ignore file's directory. An excluded parent directory must be included again before a file inside it can be restored. ATM also honors the workspace's `.prettierignore`; an exception in one ignore file does not override an exclusion in the other.
+ATM ignore files use Git ignore syntax, including `**`, root-anchored paths, and `!` exceptions. Patterns are relative to the ignore file's directory. An excluded parent directory must be included again before a file inside it can be restored. ATM reads only its configured ignore file (default `.atmignore`). To keep exclusions from an existing `.prettierignore`, copy the relevant rules into `.atmignore`.
 
 To enable ATM's dedicated save action:
 

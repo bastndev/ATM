@@ -84,6 +84,13 @@ suite('ATM Formatter — Provider Reliability', function () {
 		assert.ok((await provider.formatRange(document, range)).length > 0);
 	});
 
+	test('.prettierignore does not suppress document, selection or save formatting', async () => {
+		fs.writeFileSync(path.join(directory, '.prettierignore'), '**/*.ts\n');
+		assert.ok((await provider.formatDocument(document)).length > 0);
+		assert.ok((await provider.formatRange(document, range)).length > 0);
+		assert.strictEqual((await getActions()).length, 1);
+	});
+
 	test('invalid config blocks document, selection, force format and save actions', async () => {
 		const configPath = path.join(directory, '.prettierrc');
 		fs.writeFileSync(configPath, '{');
