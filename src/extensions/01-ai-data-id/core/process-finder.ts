@@ -1,5 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
+import * as http from 'http';
 import * as https from 'https';
 import * as process from 'process';
 import { ProcessInfo } from './types';
@@ -17,8 +18,24 @@ const RETRY_DELAY_MS = 500;
 /** Default maximum number of retries for process detection. */
 const DEFAULT_MAX_RETRIES = 2;
 
-/** Unified, robust regex for capturing the Antigravity CSRF token across all OS environments. */
-const CSRF_TOKEN_REGEX = /--csrf_token[=\s]+([a-zA-Z0-9\-]+)/i;
+/**
+ * Unified, robust regex for capturing the Antigravity CSRF token across all OS environments
+ * and versions (supports `--csrf_token`, `--csrf-token`, and `--csrfToken`).
+ */
+const CSRF_TOKEN_REGEX = /--csrf[_-]?token[=\s]+["']?([a-zA-Z0-9\-_]+)["']?/i;
+
+/**
+ * Regex for extracting server ports passed directly as command-line arguments
+ * in newer Antigravity / `agy` CLI builds (e.g. `--extension_server_port 42100`, `--hub-port=64871`).
+ */
+const CLI_PORT_REGEX = /--(?:extension[_-]server[_-]port|hub[_-]port|server[_-]port|port)[=\s]+(\d+)/gi;
+
+/** Health-check RPC endpoints supported across Antigravity 1.x and 2.0. */
+const PROBE_ENDPOINTS = [
+	'/exa.language_server_pb.LanguageServerService/GetUnleashData',
+	'/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary',
+	'/exa.language_server_pb.LanguageServerService/GetUserStatus',
+] as const;
 
 // ── Platform-specific process names ──────────────────────────────────
 
@@ -31,38 +48,128 @@ const PROCESS_NAMES: Record<string, string> = {
 };
 
 /**
+ * Expanded candidate process names to support both legacy architecture-suffixed binaries
+ * and modern Antigravity 2.0 / `agy` unified binaries.
+ */
+const CANDIDATE_PROCESS_NAMES: Record<string, readonly string[]> = {
+	win32: [
+		'agy.exe',
+		'language_server_windows_x64.exe',
+		'language_server.exe',
+		'language_service_windows_x64.exe',
+	],
+	darwin: [
+		'agy',
+		'language_server_macos_arm',
+		'language_server_macos',
+		'language_server',
+	],
+	linux: [
+		'agy',
+		'language_server_linux_x64',
+		'language_server_linux_arm',
+		'language_server',
+	],
+};
+
+/**
  * Detects the Antigravity language server process running locally
  * and discovers a working HTTPS port to communicate with it.
  *
- * Supports Windows (PowerShell), macOS, and Linux (x64 & ARM64).
+ * Supports Windows (PowerShell), macOS, and Linux (x64 & ARM64),
+ * across both Antigravity 1.x and Antigravity 2.0 / `agy` CLI.
+ *
+ * @updatedBy Enrique H. Hernandez (@EnriqueHH) <poke.henri@gmail.com>
  */
 export class ProcessFinder {
 	private readonly processName: string;
+	private readonly candidateNames: readonly string[];
 
 	constructor() {
 		const key = `${process.platform}_${process.arch}`;
 		this.processName = PROCESS_NAMES[key]
 			?? PROCESS_NAMES[`${process.platform}_x64`]
 			?? 'language_server_linux_x64';
+		const platformCandidates = CANDIDATE_PROCESS_NAMES[process.platform] ?? [this.processName, 'language_server'];
+		this.candidateNames = [...new Set([this.processName, ...platformCandidates])];
+	}
+
+	/**
+	 * Extracts the CSRF token from a process command-line string.
+	 */
+	static extractCsrfToken(commandLine: string): string | null {
+		const match = commandLine.match(CSRF_TOKEN_REGEX);
+		return match ? match[1] : null;
+	}
+
+	/**
+	 * Extracts any explicit server ports passed in a process command-line string.
+	 */
+	static extractCliPorts(commandLine: string): number[] {
+		const ports: number[] = [];
+		let match: RegExpExecArray | null;
+		const regex = new RegExp(CLI_PORT_REGEX.source, 'gi');
+		while ((match = regex.exec(commandLine)) !== null) {
+			const port = parseInt(match[1], 10);
+			if (Number.isFinite(port) && port > 0 && port <= 65535) {
+				ports.push(port);
+			}
+		}
+		return [...new Set(ports)];
 	}
 
 	/**
 	 * Attempts to detect the Antigravity process and find a working port.
+	 * First checks environment variables injected by Antigravity IDE (e.g. `ANTIGRAVITY_LS_ADDRESS`),
+	 * then probes active processes (`agy`, `language_server`) across HTTP and HTTPS.
+	 *
 	 * @param maxRetries - Number of detection attempts before giving up.
 	 * @returns Connection info or `null` if the process could not be found.
 	 */
 	async detectProcessInfo(maxRetries: number = DEFAULT_MAX_RETRIES): Promise<ProcessInfo | null> {
+		// 1. Direct environment variable fast-path (inside Antigravity IDE)
+		const envToken = process.env.ANTIGRAVITY_CSRF_TOKEN;
+		const envAddress = process.env.ANTIGRAVITY_LS_ADDRESS;
+		if (envToken && envAddress) {
+			const portMatch = envAddress.match(/:(\d+)$/);
+			if (portMatch) {
+				const envPort = parseInt(portMatch[1], 10);
+				const verified = await this.findWorkingPort([envPort], envToken);
+				if (verified) {
+					return {
+						connectPort: verified.port,
+						csrfToken: envToken,
+						protocol: verified.protocol,
+					};
+				}
+			}
+		}
+
 		for (let i = 0; i < maxRetries; i++) {
 			try {
 				const info = await this.getProcessInfoForPlatform();
 				if (info) {
-					const ports = await this.getListeningPorts(info.pid);
-					const validPort = await this.findWorkingPort(ports, info.csrfToken);
+					// Fast path: probe explicit CLI ports (e.g. --hub-port) before spawning lsof/ss
+					if (info.cliPorts.length > 0) {
+						const directMatch = await this.findWorkingPort(info.cliPorts, info.csrfToken);
+						if (directMatch) {
+							return {
+								connectPort: directMatch.port,
+								csrfToken: info.csrfToken,
+								protocol: directMatch.protocol,
+							};
+						}
+					}
 
-					if (validPort) {
+					const osPorts = await this.getListeningPorts(info.pid);
+					const candidatePorts = [...new Set([...info.cliPorts, ...osPorts])];
+					const verified = await this.findWorkingPort(candidatePorts, info.csrfToken);
+
+					if (verified) {
 						return {
-							connectPort: validPort,
+							connectPort: verified.port,
 							csrfToken: info.csrfToken,
+							protocol: verified.protocol,
 						};
 					}
 				}
@@ -77,55 +184,87 @@ export class ProcessFinder {
 		return null;
 	}
 
-	private async getProcessInfoForPlatform(): Promise<{ pid: number; csrfToken: string } | null> {
+	private async getProcessInfoForPlatform(): Promise<{ pid: number; csrfToken: string; cliPorts: number[] } | null> {
 		if (process.platform === 'win32') {
 			return this.detectWindows();
 		}
 		return this.detectUnix();
 	}
 
-	private async detectWindows(): Promise<{ pid: number; csrfToken: string } | null> {
-		const psScript = `Get-CimInstance Win32_Process -Filter "name='${this.processName}'" | Select-Object ProcessId,CommandLine | ConvertTo-Json`;
+	private async detectWindows(): Promise<{ pid: number; csrfToken: string; cliPorts: number[] } | null> {
+		const filterClauses = this.candidateNames.map(n => `name='${n}'`).join(' OR ');
+		const psScript = `Get-CimInstance Win32_Process -Filter "${filterClauses}" | Select-Object ProcessId,CommandLine | ConvertTo-Json`;
 		const { stdout } = await execFileAsync(
 			'powershell', ['-NoProfile', '-Command', psScript],
 		);
 
 		try {
-			let data = JSON.parse(stdout.trim()) as { ProcessId: number; CommandLine?: string } | Array<{ ProcessId: number; CommandLine?: string }>;
-			if (Array.isArray(data)) {
-				const antigravityProcess = data.find(
-					(item) => item.CommandLine?.toLowerCase().includes('antigravity')
-				);
-				if (!antigravityProcess) { return null; }
-				data = antigravityProcess;
+			const parsed = JSON.parse(stdout.trim()) as { ProcessId: number; CommandLine?: string } | Array<{ ProcessId: number; CommandLine?: string }>;
+			const items = Array.isArray(parsed) ? parsed : [parsed];
+
+			// Prioritize processes explicitly referencing antigravity/gemini/agy, fallback to any with a valid CSRF token
+			const prioritized = [
+				...items.filter(item => {
+					const cmd = (item.CommandLine || '').toLowerCase();
+					return cmd.includes('antigravity') || cmd.includes('.gemini') || cmd.includes('agy');
+				}),
+				...items,
+			];
+
+			for (const candidate of prioritized) {
+				const commandLine = candidate?.CommandLine || '';
+				const csrfToken = ProcessFinder.extractCsrfToken(commandLine);
+				if (csrfToken && Number.isFinite(candidate.ProcessId)) {
+					return {
+						pid: candidate.ProcessId,
+						csrfToken,
+						cliPorts: ProcessFinder.extractCliPorts(commandLine),
+					};
+				}
 			}
-
-			const commandLine = data.CommandLine || '';
-			const tokenMatch = commandLine.match(CSRF_TOKEN_REGEX);
-			if (!tokenMatch) { return null; }
-
-			return { pid: data.ProcessId, csrfToken: tokenMatch[1] };
+			return null;
 		} catch {
 			return null;
 		}
 	}
 
-	private async detectUnix(): Promise<{ pid: number; csrfToken: string } | null> {
+	private async detectUnix(): Promise<{ pid: number; csrfToken: string; cliPorts: number[] } | null> {
 		const flag = process.platform === 'darwin' ? '-fl' : '-af';
+		const candidateLines: string[] = [];
 
-		const { stdout } = await execFileAsync('pgrep', [flag, this.processName]);
-
-		for (const line of stdout.split('\n')) {
-			if (line.includes('antigravity') && line.includes('--csrf_token')) {
-				const parts = line.trim().split(/\s+/);
-				const pid = parseInt(parts[0], 10);
-				if (!Number.isFinite(pid)) { continue; }
-				const tokenMatch = line.match(CSRF_TOKEN_REGEX);
-
-				if (tokenMatch) {
-					return { pid, csrfToken: tokenMatch[1] };
+		for (const name of this.candidateNames) {
+			try {
+				const { stdout } = await execFileAsync('pgrep', [flag, name]);
+				if (stdout) {
+					candidateLines.push(...stdout.split('\n').filter(Boolean));
 				}
+			} catch {
+				// Process name variant not running; try next candidate
 			}
+		}
+
+		// Prioritize processes with antigravity/.gemini/agy in their path, then fallback to any matching language_server with CSRF token
+		const prioritizedLines = [
+			...candidateLines.filter(line => {
+				const lower = line.toLowerCase();
+				return lower.includes('antigravity') || lower.includes('.gemini') || lower.includes('agy');
+			}),
+			...candidateLines,
+		];
+
+		for (const line of prioritizedLines) {
+			const csrfToken = ProcessFinder.extractCsrfToken(line);
+			if (!csrfToken) { continue; }
+
+			const parts = line.trim().split(/\s+/);
+			const pid = parseInt(parts[0], 10);
+			if (!Number.isFinite(pid)) { continue; }
+
+			return {
+				pid,
+				csrfToken,
+				cliPorts: ProcessFinder.extractCliPorts(line),
+			};
 		}
 		return null;
 	}
@@ -185,15 +324,18 @@ export class ProcessFinder {
 
 	/**
 	 * Tests all candidate ports in parallel and returns the first one
-	 * that responds successfully to an HTTPS health-check.
+	 * that responds successfully to an HTTP or HTTPS health-check.
 	 *
 	 * **Security note**: `rejectUnauthorized: false` is intentional here.
-	 * The language server uses a self-signed certificate on `127.0.0.1`.
+	 * The language server uses a self-signed certificate on `127.0.0.1` (or loopback HTTP on `--hub-port`).
 	 * The CSRF token provides authentication; TLS here is only for transport encryption.
 	 */
-	private async findWorkingPort(ports: number[], csrfToken: string): Promise<number | null> {
+	private async findWorkingPort(
+		ports: number[],
+		csrfToken: string,
+	): Promise<{ port: number; protocol: 'http' | 'https' } | null> {
 		if (ports.length === 0) { return null; }
-		const activeRequests = new Set<ReturnType<typeof https.request>>();
+		const activeRequests = new Set<http.ClientRequest>();
 
 		const cancelPendingRequests = (): void => {
 			for (const request of activeRequests) {
@@ -202,26 +344,35 @@ export class ProcessFinder {
 			activeRequests.clear();
 		};
 
-		const testPort = (port: number): Promise<number> => {
+		const probeEndpoint = (
+			port: number,
+			protocol: 'http' | 'https',
+			endpoint: string,
+			payload: string,
+		): Promise<{ port: number; protocol: 'http' | 'https' }> => {
 			return new Promise((resolve, reject) => {
-				const req = https.request({
-					hostname: '127.0.0.1', port,
-					path: '/exa.language_server_pb.LanguageServerService/GetUnleashData',
+				const requestFn = protocol === 'https' ? https.request : http.request;
+				const req = requestFn({
+					hostname: '127.0.0.1',
+					port,
+					path: endpoint,
 					method: 'POST',
 					headers: {
 						'Content-Type': 'application/json',
+						'Content-Length': Buffer.byteLength(payload),
 						'X-Codeium-Csrf-Token': csrfToken,
+						'X-CSRF-Token': csrfToken,
 						'Connect-Protocol-Version': '1',
 					},
-					rejectUnauthorized: false, // Self-signed cert on localhost (see JSDoc above)
+					...(protocol === 'https' ? { rejectUnauthorized: false } : {}),
 					timeout: PORT_PROBE_TIMEOUT_MS,
 				}, res => {
 					res.resume(); // Consume the stream to prevent socket memory leaks
 					if (res.statusCode === 200) {
-						cancelPendingRequests();
-						resolve(port);
+						resolve({ port, protocol });
+					} else {
+						reject(new Error(`Status: ${res.statusCode}`));
 					}
-					else { reject(new Error(`Status: ${res.statusCode}`)); }
 				});
 				activeRequests.add(req);
 				req.on('close', () => {
@@ -229,9 +380,29 @@ export class ProcessFinder {
 				});
 				req.on('error', reject);
 				req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-				req.write(JSON.stringify({ wrapper_data: {} }));
+				req.write(payload);
 				req.end();
 			});
+		};
+
+		const testPort = async (port: number): Promise<{ port: number; protocol: 'http' | 'https' }> => {
+			const defaultPayload = JSON.stringify({
+				wrapper_data: {},
+				metadata: { ideName: 'antigravity', extensionName: 'antigravity', locale: 'en' },
+			});
+			const protocols: ReadonlyArray<'http' | 'https'> = ['http', 'https'];
+			for (const protocol of protocols) {
+				for (const endpoint of PROBE_ENDPOINTS) {
+					try {
+						const verified = await probeEndpoint(port, protocol, endpoint, defaultPayload);
+						cancelPendingRequests();
+						return verified;
+					} catch {
+						// Try next endpoint / protocol
+					}
+				}
+			}
+			throw new Error(`Port ${port} did not respond to any known Antigravity RPC endpoint`);
 		};
 
 		try {

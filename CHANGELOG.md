@@ -15,6 +15,30 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
 <!-- --- -->
 
 ---
+## [2.0.4] - 2026-10-31
+
+### Added & Improved (Contribution by **Enrique H. Hernandez** — `@EnriqueHH`)
+
+- **AI Data (`01-ai-data-id`) — Antigravity 2.0 Compatibility**:
+  - Added support for the Antigravity 2.0 `RetrieveUserQuotaSummary` RPC endpoint (5-hour and weekly quota buckets) with automatic fallback to `GetUserStatus`.
+  - Expanded `ProcessFinder` to detect modern `language_server` / `language_server.exe` binaries, `--csrf-token` / `--csrf_token` variants, and direct `--extension_server_port` CLI flags.
+  - Added support and color palettes for modern model families including **Gemini 4 Argon**, **Gemini 3.8 Pro/Flash**, and **Claude 3.7/4.6**.
+  - Enabled silent background discovery so `AI Data` coexists seamlessly when running Antigravity 2.0 alongside VS Code, Cursor, or Windsurf.
+
+---
+## [2.0.0] - 2026-07-14
+
+### Added
+
+- **Major README refresh**: Rebuilt `README.md` to showcase all 30+ ATM extensions with a Table of Contents, collapsible Preview Gallery, expanded Settings reference, and a Keyboard Shortcuts cheat sheet.
+- **Full localization sync**: Updated all 11 localized READMEs in `public/docs/` (AR, DE, ES, FR, HI, JA, KO, PT, RU, VI, ZH) to match the new English source.
+- **New documented extensions**: Added descriptions for ATM Focus, Tailwind CSS, Terminal Sound, Bracket Lynx, Git Commands, Compare Code, ATM Browser, NPM Run, Go Live, Run Dev, ATM Formatter, Commit Emoji, and Before After.
+
+### Improved
+
+- **Extension discovery**: README now accurately reflects the full extension count (+30) and replaces the outdated "+21 extensions" claim.
+
+---
 
 ## [2.0.3] - 2026-07-17
 
