@@ -1,3 +1,14 @@
+/**
+ * @module tooltip-builder
+ * Builds the rich Markdown tooltip and calculates engineered token metrics
+ * for the Antigravity AI Data status bar item.
+ *
+ * Updated to support Antigravity 2.0 multi-group quota buckets (5h / Weekly)
+ * and modern model families (Gemini 4 Argon, Gemini 3.8, Claude 3.7/4.6, GPT-OSS).
+ *
+ * @updatedBy Enrique H. Hernandez (@EnriqueHH) <poke.henri@gmail.com>
+ */
+
 import * as vscode from 'vscode';
 import { QuotaSnapshot } from '../core/types';
 
@@ -32,11 +43,26 @@ const COLOR_PLAN_ULTRA = '#f59e0b';  // amber-500
 // ── Model display order ──────────────────────────────────────────────
 
 const MODEL_DISPLAY_ORDER: readonly string[] = [
+	'Gemini 4 Argon (High)',
+	'Gemini 4 Argon (Low)',
+	'Gemini 3.8 Pro (High)',
+	'Gemini 3.8 Pro (Low)',
+	'Gemini 3.8 Flash (High)',
+	'Gemini 3.8 Flash (Low)',
+	'Gemini 3.5 Pro',
+	'Gemini 3.5 Flash',
 	'Gemini 3.1 Pro (High)',
 	'Gemini 3.1 Pro (Low)',
 	'Gemini 3 Flash',
+	'Gemini Models (5h)',
+	'Gemini Models (Weekly)',
 	'Claude Sonnet 4.6 (Thinking)',
 	'Claude Opus 4.6 (Thinking)',
+	'Claude 3.7 Sonnet (Thinking)',
+	'Claude 3.7 Sonnet',
+	'Claude 3.5 Sonnet',
+	'Claude and GPT models (5h)',
+	'Claude and GPT models (Weekly)',
 	'GPT-OSS 120B (Medium)',
 ];
 
@@ -119,7 +145,7 @@ export type EngineeredTokensResult =
  */
 const MODEL_BASKETS = {
 	PRO: {
-		keywords: ['pro', 'ultra'],              // Gemini Pro / Ultra variants only
+		keywords: ['pro', 'ultra', 'argon', 'gemini models'], // Gemini Pro / Ultra / Argon & bucket variants
 		monthlyAllocation: 2000
 	},
 	FLASH: {
@@ -127,7 +153,7 @@ const MODEL_BASKETS = {
 		monthlyAllocation: 1000
 	},
 	THIRD_PARTY: {
-		keywords: ['claude', 'sonnet', 'opus', 'gpt-oss', 'llama', 'deepseek'],
+		keywords: ['claude', 'sonnet', 'opus', 'gpt-oss', 'gpt models', 'llama', 'deepseek'],
 		monthlyAllocation: 2000                   // Claude + GPT-OSS share one pool
 	}
 };
@@ -344,16 +370,16 @@ function formatTimestamp(date: Date): string {
 export function getModelStatusColor(label: string, percentage: number): string {
 	if (percentage < 15) { return COLOR_DANGER; }
 
-	// 1. Gemini Pro — Google Blue fading to Cyan
-	if (label.includes('Pro (High)') || label.includes('Pro (Low)')) {
+	// 1. Gemini Pro / Argon / Gemini Models bucket — Google Blue fading to Cyan
+	if (label.includes('Pro') || label.includes('Argon') || label.includes('Gemini Models')) {
 		if (percentage >= 80) { return '#3b82f6'; } // blue-500
 		if (percentage >= 60) { return '#0ea5e9'; } // sky-500
 		if (percentage >= 40) { return '#06b6d4'; } // cyan-500
 		return COLOR_WARNING;                       // amber-500
 	}
 
-	// 2. Gemini Flash — Emerald fading to Lime
-	if (label.includes('Flash')) {
+	// 2. Gemini Flash / Lite — Emerald fading to Lime
+	if (label.includes('Flash') || label.includes('Lite')) {
 		if (percentage >= 80) { return '#10b981'; } // emerald-500
 		if (percentage >= 60) { return '#22c55e'; } // green-500
 		if (percentage >= 40) { return '#84cc16'; } // lime-500
@@ -361,15 +387,15 @@ export function getModelStatusColor(label: string, percentage: number): string {
 	}
 
 	// 3. Claude — Anthropic Peach/Skin fading into Fuchsia (No amber anxiety!)
-	if (label.includes('Claude')) {
+	if (label.includes('Claude') || label.includes('Sonnet') || label.includes('Opus')) {
 		if (percentage >= 80) { return '#fdba74'; } // orange-300 (Warm Peach/Skin)
 		if (percentage >= 60) { return '#fb7185'; } // rose-400 (Coral/Vivid pinkish-skin)
 		if (percentage >= 40) { return '#e347c4'; } // fuchsia-500 (Fuchsia)
 		return COLOR_WARNING;                       // amber-500
 	}
 
-	// 4. GPT-OSS — Vibrant Pink / Fuchsia
-	if (label.includes('GPT-OSS')) {
+	// 4. GPT-OSS / Third-Party — Vibrant Pink / Fuchsia
+	if (label.includes('GPT')) {
 		if (percentage >= 80) { return '#f472b6'; } // pink-400
 		if (percentage >= 60) { return '#ec4899'; } // pink-500
 		if (percentage >= 40) { return '#db2777'; } // pink-600

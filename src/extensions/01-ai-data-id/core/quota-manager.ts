@@ -1,7 +1,9 @@
+import * as http from 'http';
 import * as https from 'https';
 import {
 	QuotaSnapshot,
 	ServerUserStatusResponse,
+	ServerQuotaSummaryResponse,
 	ModelQuotaInfo,
 	PromptTokensInfo,
 	ServerClientModelConfig,
@@ -12,8 +14,11 @@ import {
 /** Maximum time (ms) to wait for a quota API response. */
 const QUOTA_REQUEST_TIMEOUT_MS = 5_000;
 
-/** Endpoint path for the GetUserStatus RPC. */
+/** Endpoint path for the legacy/detailed GetUserStatus RPC. */
 const USER_STATUS_ENDPOINT = '/exa.language_server_pb.LanguageServerService/GetUserStatus';
+
+/** Endpoint path for the Antigravity 2.0 RetrieveUserQuotaSummary RPC. */
+const QUOTA_SUMMARY_ENDPOINT = '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary';
 
 /** Minimum value for a quota fraction (clamped). */
 const FRACTION_MIN = 0;
@@ -35,6 +40,10 @@ const HOURS_PER_DAY = 24;
  * Manages the connection to the local Antigravity language server
  * and fetches AI model quota/usage data via its HTTPS API.
  *
+ * Supports a dual-endpoint fallback chain:
+ *   1. `GetUserStatus` (per-model configs + plan metadata)
+ *   2. `RetrieveUserQuotaSummary` (Antigravity 2.0 multi-group 5h & weekly buckets)
+ *
  * Lifecycle:
  *   1. Call `init()` with a port and CSRF token (obtained from `ProcessFinder`)
  *   2. Call `fetchQuota()` periodically to get usage snapshots
@@ -44,29 +53,54 @@ const HOURS_PER_DAY = 24;
  * **Security note**: `rejectUnauthorized: false` is intentional.
  * The language server runs on `127.0.0.1` with a self-signed certificate.
  * Authentication is handled by the CSRF token, not TLS certificate validation.
+ *
+ * @updatedBy Enrique H. Hernandez (@EnriqueHH) <poke.henri@gmail.com>
  */
 export class QuotaManager {
 	private port: number = 0;
 	private csrfToken: string = '';
-	private sharedAgent = new https.Agent({ keepAlive: true });
+	private protocol: 'http' | 'https' = 'https';
+	private sharedHttpsAgent: https.Agent | null = null;
+	private sharedHttpAgent: http.Agent | null = null;
+
+	private getHttpsAgent(): https.Agent {
+		if (!this.sharedHttpsAgent) {
+			this.sharedHttpsAgent = new https.Agent({ keepAlive: true });
+		}
+		return this.sharedHttpsAgent;
+	}
+
+	private getHttpAgent(): http.Agent {
+		if (!this.sharedHttpAgent) {
+			this.sharedHttpAgent = new http.Agent({ keepAlive: true });
+		}
+		return this.sharedHttpAgent;
+	}
 
 	/** Initialize the connection parameters. Must be called before `fetchQuota()`. */
-	init(port: number, csrfToken: string): void {
+	init(port: number, csrfToken: string, protocol: 'http' | 'https' = 'https'): void {
 		this.port = port;
 		this.csrfToken = csrfToken;
+		this.protocol = protocol;
 	}
 
 	/** Reset the connection, forcing a fresh process detection on next fetch. */
 	reset(): void {
 		this.port = 0;
 		this.csrfToken = '';
-		this.sharedAgent.destroy();
-		this.sharedAgent = new https.Agent({ keepAlive: true });
+		if (this.sharedHttpsAgent) {
+			this.sharedHttpsAgent.destroy();
+			this.sharedHttpsAgent = null;
+		}
+		if (this.sharedHttpAgent) {
+			this.sharedHttpAgent.destroy();
+			this.sharedHttpAgent = null;
+		}
 	}
 
-	/** Clean up the shared HTTPS agent. Call on extension deactivation. */
+	/** Clean up the shared HTTP/HTTPS agents. Call on extension deactivation. */
 	dispose(): void {
-		this.sharedAgent.destroy();
+		this.reset();
 	}
 
 	/** Whether the manager has valid connection parameters. */
@@ -75,54 +109,89 @@ export class QuotaManager {
 	}
 
 	/** Returns current connection info, or `null` if not connected. */
-	getConnectionInfo(): { connectPort: number; csrfToken: string } | null {
+	getConnectionInfo(): { connectPort: number; csrfToken: string; protocol: 'http' | 'https' } | null {
 		if (!this.isConnected()) { return null; }
-		return { connectPort: this.port, csrfToken: this.csrfToken };
+		return { connectPort: this.port, csrfToken: this.csrfToken, protocol: this.protocol };
 	}
 
 	/**
 	 * Fetches a fresh quota snapshot from the language server.
-	 * @throws {Error} If the connection is not initialized or the request fails.
+	 * Queries `GetUserStatus` and automatically falls back to or merges with
+	 * `RetrieveUserQuotaSummary` for Antigravity 2.0 compatibility.
+	 *
+	 * @throws {Error} If the connection is not initialized or all endpoints fail.
 	 */
 	async fetchQuota(): Promise<QuotaSnapshot | null> {
 		if (!this.isConnected()) {
 			throw new Error('Connection not initialized. Call init() first.');
 		}
 
+		let statusSnapshot: QuotaSnapshot | null = null;
+		let statusError: unknown = null;
+
+		try {
+			const rawStatus = await this.postRpc<ServerUserStatusResponse>(USER_STATUS_ENDPOINT);
+			statusSnapshot = this.parseResponse(rawStatus);
+			if (statusSnapshot.models.length > 0) {
+				return statusSnapshot;
+			}
+		} catch (err) {
+			statusError = err;
+		}
+
+		try {
+			const rawSummary = await this.postRpc<ServerQuotaSummaryResponse>(QUOTA_SUMMARY_ENDPOINT);
+			return this.parseQuotaSummaryResponse(rawSummary, statusSnapshot ?? undefined);
+		} catch (summaryError) {
+			if (statusSnapshot) {
+				return statusSnapshot;
+			}
+			throw statusError ?? summaryError;
+		}
+	}
+
+	/**
+	 * Executes a POST Connect-RPC request against the local Antigravity HTTP/HTTPS server.
+	 */
+	private postRpc<T>(endpoint: string): Promise<T> {
 		return new Promise((resolve, reject) => {
 			const data = JSON.stringify({
 				metadata: { ideName: 'antigravity', extensionName: 'antigravity', locale: 'en' },
 			});
 
-			const req = https.request({
+			const isHttps = this.protocol === 'https';
+			const requestFn = isHttps ? https.request : http.request;
+
+			const req = requestFn({
 				hostname: '127.0.0.1',
 				port: this.port,
-				path: USER_STATUS_ENDPOINT,
+				path: endpoint,
 				method: 'POST',
-				agent: this.sharedAgent,
+				agent: isHttps ? this.getHttpsAgent() : this.getHttpAgent(),
 				headers: {
 					'Content-Type': 'application/json',
 					'Content-Length': Buffer.byteLength(data),
 					'Connect-Protocol-Version': '1',
 					'X-Codeium-Csrf-Token': this.csrfToken,
+					'X-CSRF-Token': this.csrfToken,
 				},
-				rejectUnauthorized: false, // Self-signed cert on localhost (see class JSDoc)
+				...(isHttps ? { rejectUnauthorized: false } : {}),
 				timeout: QUOTA_REQUEST_TIMEOUT_MS,
 			}, res => {
 				let body = '';
 				res.on('data', chunk => body += chunk);
 				res.on('end', () => {
 					if (res.statusCode !== 200) {
-						reject(new Error(`Unexpected status ${res.statusCode}: ${body.slice(0, 200)}`));
+						reject(new Error(`Unexpected status ${res.statusCode} from ${endpoint}: ${body.slice(0, 200)}`));
 						return;
 					}
 					if (!body.trim()) {
-						reject(new Error('Empty response body from quota endpoint'));
+						reject(new Error(`Empty response body from ${endpoint}`));
 						return;
 					}
 					try {
-						const json = JSON.parse(body) as ServerUserStatusResponse;
-						resolve(this.parseResponse(json));
+						const json = JSON.parse(body) as T;
+						resolve(json);
 					} catch (e) {
 						reject(e);
 					}
@@ -137,9 +206,12 @@ export class QuotaManager {
 
 	// ── Response parsing ─────────────────────────────────────────────
 
-	private parseResponse(data: ServerUserStatusResponse): QuotaSnapshot {
+	/**
+	 * Parses a `GetUserStatus` response into a normalized `QuotaSnapshot`.
+	 */
+	public parseResponse(data: ServerUserStatusResponse): QuotaSnapshot {
 		const { userStatus } = data;
-		const planName = userStatus?.planStatus?.planInfo?.planName;
+		const planName = userStatus?.planStatus?.planInfo?.planName ?? userStatus?.userTier?.name;
 		const teamsTier = userStatus?.planStatus?.planInfo?.teamsTier;
 		if (!userStatus?.cascadeModelConfigData) {
 			return {
@@ -152,7 +224,7 @@ export class QuotaManager {
 		}
 
 		const rawModels: ServerClientModelConfig[] = userStatus.cascadeModelConfigData.clientModelConfigs || [];
-		const models: ModelQuotaInfo[] = rawModels
+		const allModels: ModelQuotaInfo[] = rawModels
 			.filter(m => m.quotaInfo)
 			.map(m => {
 				const rawFraction = m.quotaInfo?.remainingFraction;
@@ -180,6 +252,25 @@ export class QuotaManager {
 				};
 			});
 
+		// Deduplicate redundant (Low)/(Medium) tiers when a (High) tier of the same model family
+		// has the exact same quota fraction and reset timestamp (keeps tooltip compact in Antigravity 2.0)
+		const highVariants = new Map<string, string>();
+		for (const m of allModels) {
+			if (m.label.endsWith('(High)')) {
+				const baseName = m.label.replace(/\s*\(High\)$/, '');
+				highVariants.set(baseName, `${m.remainingFraction}:${m.resetTime.getTime()}`);
+			}
+		}
+
+		const models = allModels.filter(m => {
+			const tierMatch = m.label.match(/^(.*?)\s*\((Low|Medium)\)$/);
+			if (!tierMatch) { return true; }
+			const baseName = tierMatch[1];
+			const highSignature = highVariants.get(baseName);
+			if (!highSignature) { return true; }
+			return highSignature !== `${m.remainingFraction}:${m.resetTime.getTime()}`;
+		});
+
 		return {
 			timestamp: new Date(),
 			planName,
@@ -189,13 +280,72 @@ export class QuotaManager {
 		};
 	}
 
+	/**
+	 * Parses an Antigravity 2.0 `RetrieveUserQuotaSummary` response into a normalized `QuotaSnapshot`.
+	 * Maps multi-group quota buckets (e.g. 5h and weekly windows) into `ModelQuotaInfo` items.
+	 */
+	public parseQuotaSummaryResponse(
+		data: ServerQuotaSummaryResponse,
+		fallbackSnapshot?: Partial<QuotaSnapshot>,
+	): QuotaSnapshot {
+		const payload = data.response ?? data;
+		const groups = payload.groups ?? [];
+		const planName = payload.planName ?? fallbackSnapshot?.planName;
+		const teamsTier = payload.teamsTier ?? fallbackSnapshot?.teamsTier;
+		const models: ModelQuotaInfo[] = [];
+
+		for (const group of groups) {
+			const groupTitle = group.displayName || 'AI Models';
+			const buckets = group.buckets ?? [];
+
+			for (const bucket of buckets) {
+				const rawFraction = bucket.remainingFraction;
+				const remainingFraction = this.normalizeFraction(rawFraction);
+
+				const resetTime = bucket.resetTime ? new Date(bucket.resetTime) : new Date();
+				const diff = resetTime.getTime() - Date.now();
+
+				const isExhausted = remainingFraction === 0
+					|| (remainingFraction === undefined && bucket.resetTime !== undefined && diff > 0);
+
+				const windowSuffix = bucket.window
+					? ` (${bucket.window === 'weekly' ? 'Weekly' : bucket.window})`
+					: bucket.displayName
+						? ` (${bucket.displayName})`
+						: '';
+
+				models.push({
+					label: `${groupTitle}${windowSuffix}`,
+					modelId: bucket.bucketId || `${groupTitle.toLowerCase().replace(/\s+/g, '-')}-${bucket.window || 'quota'}`,
+					window: bucket.window,
+					remainingFraction,
+					remainingPercentage: remainingFraction !== undefined
+						? remainingFraction * PERCENTAGE_MAX
+						: undefined,
+					isExhausted,
+					resetTime,
+					timeUntilReset: diff,
+					timeUntilResetFormatted: QuotaManager.formatTime(diff),
+				});
+			}
+		}
+
+		return {
+			timestamp: new Date(),
+			planName,
+			teamsTier,
+			promptTokens: fallbackSnapshot?.promptTokens,
+			models,
+		};
+	}
+
 	private parsePromptTokens(data: ServerUserStatusResponse): PromptTokensInfo | undefined {
 		const planStatus = data.userStatus?.planStatus;
 		if (!planStatus) { return undefined; }
 
-		const monthly = planStatus.planInfo?.monthlyPromptTokens;
-		const available = planStatus.availablePromptTokens;
-		if (!Number.isFinite(monthly) || !Number.isFinite(available) || monthly <= 0) {
+		const monthly = planStatus.planInfo?.monthlyPromptTokens ?? planStatus.planInfo?.monthlyPromptCredits;
+		const available = planStatus.availablePromptTokens ?? planStatus.availablePromptCredits;
+		if (monthly === undefined || available === undefined || !Number.isFinite(monthly) || !Number.isFinite(available) || monthly <= 0) {
 			return undefined;
 		}
 
