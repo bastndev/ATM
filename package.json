@@ -920,38 +920,45 @@
           "description": "Enable Bracket Lynx decorations globally."
         },
         "atm.formatter.enable": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": true,
           "description": "Enable ATM Formatter for TypeScript, TSX, CSS, Astro, and JSON files."
         },
         "atm.formatter.printWidth": {
+          "scope": "language-overridable",
           "type": "number",
           "default": 120,
           "minimum": 1,
           "description": "Maximum line width that Prettier will wrap to."
         },
         "atm.formatter.tabWidth": {
+          "scope": "language-overridable",
           "type": "number",
           "default": 2,
           "minimum": 1,
           "description": "Number of spaces per indentation level."
         },
         "atm.formatter.useTabs": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": false,
           "description": "Indent with tabs instead of spaces."
         },
         "atm.formatter.semi": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": true,
           "description": "Add semicolons to the end of statements."
         },
         "atm.formatter.singleQuote": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": true,
           "description": "Use single quotes instead of double quotes."
         },
         "atm.formatter.trailingComma": {
+          "scope": "language-overridable",
           "type": "string",
           "enum": ["none", "es5", "all"],
           "default": "all",
@@ -963,16 +970,19 @@
           "description": "Controls trailing commas in multi-line constructs."
         },
         "atm.formatter.bracketSpacing": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": true,
           "description": "Add spaces between brackets in object literals."
         },
         "atm.formatter.bracketSameLine": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": false,
           "description": "Put the closing > of multi-line JSX/HTML on the same line as the last line."
         },
         "atm.formatter.arrowParens": {
+          "scope": "language-overridable",
           "type": "string",
           "enum": ["avoid", "always"],
           "default": "always",
@@ -980,6 +990,7 @@
           "description": "Parentheses around single arrow function parameter."
         },
         "atm.formatter.endOfLine": {
+          "scope": "language-overridable",
           "type": "string",
           "enum": ["auto", "lf", "crlf", "cr"],
           "default": "lf",
@@ -987,11 +998,13 @@
           "description": "Line ending style for formatted output."
         },
         "atm.formatter.requireConfig": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": false,
-          "description": "Only format files when a Prettier config file (.prettierrc or package.json) is found."
+          "description": "Only format files when a Prettier configuration file is found. An .editorconfig file alone does not satisfy this requirement."
         },
         "atm.formatter.ignorePath": {
+          "scope": "language-overridable",
           "type": "string",
           "default": ".atmignore",
           "description": "Path to the ignore file (relative to the workspace root). Lists files that ATM Formatter should skip."

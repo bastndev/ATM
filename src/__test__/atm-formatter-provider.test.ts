@@ -5,12 +5,15 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { AtmFormatterProvider } from '../extensions/28-atm-formatter/host/formatterProvider';
 import { AtmFormatterCodeActionProvider } from '../extensions/28-atm-formatter/host/codeActionProvider';
+import { inspectDocument } from '../extensions/28-atm-formatter/host/documentConfig';
 
-suite('ATM Formatter — Provider Reliability', () => {
+suite('ATM Formatter — Provider Reliability', function () {
+	this.timeout(10000);
 	const extensionId = 'bastndev.atm';
 	const keys = [
 		'atm.formatter.enable', 'atm.formatter.requireConfig', 'atm.formatter.ignorePath',
 		'editor.defaultFormatter', 'editor.codeActionsOnSave',
+		'[typescript]',
 	];
 	const savedSettings = new Map<string, unknown>();
 	let directory: string;
@@ -57,11 +60,13 @@ suite('ATM Formatter — Provider Reliability', () => {
 		await set('atm.formatter.ignorePath', path.join(directory, '.atmignore'));
 		await set('editor.defaultFormatter', extensionId);
 		await set('editor.codeActionsOnSave', {});
+		await set('[typescript]', savedSettings.get('[typescript]') ?? {});
 	});
 
 	teardown(async () => {
 		await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-		cancellation.dispose();
+		cancellation?.dispose();
+		provider?.dispose();
 		fs.rmSync(directory, { recursive: true, force: true });
 	});
 
@@ -167,5 +172,46 @@ suite('ATM Formatter — Provider Reliability', () => {
 		}
 		cancellation.cancel();
 		assert.deepStrictEqual(await getActions(), []);
+	});
+
+	test('language-specific settings control enable and formatting options', async () => {
+		await set('[typescript]', { 'atm.formatter.enable': false });
+		assert.strictEqual((await inspectDocument(document)).state, 'disabled');
+		assert.deepStrictEqual(await provider.formatDocument(document), []);
+		await set('[typescript]', { 'atm.formatter.semi': false });
+		const inspected = await inspectDocument(document);
+		assert.strictEqual(inspected.config?.semi, false);
+		assert.ok((await provider.formatDocument(document)).length > 0);
+	});
+
+	test('native per-file overrides are used by the VS Code provider', async () => {
+		fs.writeFileSync(path.join(directory, '.prettierrc.yaml'), 'semi: true\noverrides:\n  - files: "*.ts"\n    options:\n      semi: false\n');
+		const inspected = await inspectDocument(document);
+		assert.strictEqual(inspected.config?.semi, false);
+		assert.ok(inspected.detail.includes('.prettierrc.yaml'));
+		assert.ok((await provider.formatDocument(document)).length > 0);
+	});
+
+	test('provider reports success and syntax errors for the target document', async () => {
+		const states: string[] = [];
+		const subscription = provider.onDidChangeStatus((status) => states.push(status.state));
+		try {
+			await provider.formatDocument(document);
+			assert.deepStrictEqual(states, ['ready', 'formatting', 'success']);
+			const brokenPath = path.join(directory, 'broken.ts');
+			fs.writeFileSync(brokenPath, 'const const const');
+			const broken = await vscode.workspace.openTextDocument(brokenPath);
+			states.length = 0;
+			assert.deepStrictEqual(await provider.formatDocument(broken), []);
+			assert.strictEqual(states.at(-1), 'error');
+		} finally { subscription.dispose(); }
+	});
+
+	test('the bundled extension formats with native YAML configuration', async () => {
+		await vscode.extensions.getExtension(extensionId)!.activate();
+		fs.writeFileSync(path.join(directory, '.prettierrc.yaml'), 'semi: false\nsingleQuote: false\n');
+		await vscode.commands.executeCommand('atm.formatter.formatDocument', document.uri);
+		assert.strictEqual(document.getText(), 'const x: number = 1\n');
+		await document.save();
 	});
 });

@@ -1,58 +1,7 @@
 import * as vscode from 'vscode';
 import { formatterService } from '../core/formatterService';
 import { languageRegistry } from '../core/languageRegistry';
-import { configFromVsCodeSettings, mergeConfig, formatterSettingKeys } from '../core/options';
-import { resolveConfigForFile } from '../core/configResolver';
-import { isFileIgnored } from '../core/ignoreResolver';
-import type { FormatterConfig } from '../core/types';
-
-/**
- * VS Code formatting providers (document + range) backed by the
- * {@link FormatterService}.
- *
- * The provider resolves the parser from the language registry, merges
- * config from `.prettierrc` (if found) with VS Code settings, calls
- * Prettier, and returns a single minimal `TextEdit` computed by diffing
- * the common prefix/suffix so VS Code applies the smallest possible change.
- */
-
-/** Get the workspace root folder for a document, or the first workspace folder. */
-function getWorkspaceRoot(document: vscode.TextDocument): string {
-	if (document.uri.scheme === 'file') {
-		const folder = vscode.workspace.getWorkspaceFolder(document.uri);
-		if (folder) { return folder.uri.fsPath; }
-	}
-	const folders = vscode.workspace.workspaceFolders;
-	return folders?.[0]?.uri.fsPath ?? process.cwd();
-}
-
-/** Resolve the full config for a document: .prettierrc (priority) + VS Code settings. */
-function resolveFullConfig(document: vscode.TextDocument): { config: FormatterConfig; hasConfigFile: boolean } {
-	const workspaceRoot = getWorkspaceRoot(document);
-	const filePath = document.uri.fsPath;
-
-	// 1. Try .prettierrc / package.json prettier key
-	const prettierConfig = document.uri.scheme === 'file'
-		? resolveConfigForFile(filePath, workspaceRoot)
-		: { config: null, configPath: null };
-
-	// 2. VS Code settings (used as fallback for missing options)
-	const vsCodeConfig = configFromVsCodeSettings((key) =>
-		vscode.workspace.getConfiguration().get(key),
-	);
-
-	// 3. Merge: .prettierrc wins, VS Code fills the gaps
-	const merged = mergeConfig(prettierConfig.config, vsCodeConfig);
-	return { config: merged, hasConfigFile: prettierConfig.configPath !== null };
-}
-
-/** Check if a document is ignored by .atmignore. */
-export function isDocumentIgnored(document: vscode.TextDocument): boolean {
-	if (document.uri.scheme !== 'file') { return false; }
-	const workspaceRoot = getWorkspaceRoot(document);
-	const ignorePathSetting = vscode.workspace.getConfiguration().get<string>(formatterSettingKeys.ignorePath) ?? '.atmignore';
-	return isFileIgnored(document.uri.fsPath, workspaceRoot, ignorePathSetting);
-}
+import { inspectDocument, type DocumentStatus } from './documentConfig';
 
 /** Compute a single minimal TextEdit by diffing common prefix/suffix. */
 function computeMinimalEdit(document: vscode.TextDocument, oldText: string, newText: string): vscode.TextEdit[] {
@@ -81,128 +30,76 @@ function computeMinimalEdit(document: vscode.TextDocument, oldText: string, newT
 	return [vscode.TextEdit.replace(new vscode.Range(startPos, endPos), replaceText)];
 }
 
-/** Whether the formatter is enabled and the document should be formatted. */
-function shouldFormat(document: vscode.TextDocument): boolean {
-	const enabled = vscode.workspace.getConfiguration().get<boolean>(formatterSettingKeys.enable, true);
-	if (!enabled) { return false; }
-	if (!languageRegistry.isLanguageSupported(document.languageId)) { return false; }
-	if (isDocumentIgnored(document)) { return false; }
-	return true;
-}
-
-export class AtmFormatterProvider
-	implements vscode.DocumentFormattingEditProvider, vscode.DocumentRangeFormattingEditProvider {
+export class AtmFormatterProvider implements vscode.DocumentFormattingEditProvider, vscode.DocumentRangeFormattingEditProvider, vscode.Disposable {
+	private readonly changes = new vscode.EventEmitter<DocumentStatus>();
+	readonly onDidChangeStatus = this.changes.event;
+	private readonly requests = new Map<string, number>();
 
 	constructor(private readonly outputChannel: Pick<vscode.OutputChannel, 'appendLine'>) {}
 
-	private resolveFormattingConfig(document: vscode.TextDocument, force = false): FormatterConfig | undefined {
-		try {
-			if (!force && !shouldFormat(document)) { return undefined; }
-			const { config, hasConfigFile } = resolveFullConfig(document);
-			const requireConfig = vscode.workspace.getConfiguration().get<boolean>(formatterSettingKeys.requireConfig, false);
-			if (!force && requireConfig && document.uri.scheme === 'file' && !hasConfigFile) {
-				this.outputChannel.appendLine(`[formatter] Skipping ${document.fileName} — no config found and requireConfig is on`);
-				return undefined;
+	dispose(): void { this.changes.dispose(); this.requests.clear(); }
+
+	provideDocumentFormattingEdits(document: vscode.TextDocument, _options: vscode.FormattingOptions, token: vscode.CancellationToken): Promise<vscode.TextEdit[]> {
+		return this.format(document, undefined, false, token);
+	}
+
+	provideDocumentRangeFormattingEdits(document: vscode.TextDocument, range: vscode.Range, _options: vscode.FormattingOptions, token: vscode.CancellationToken): Promise<vscode.TextEdit[]> {
+		return this.format(document, range, false, token);
+	}
+
+	formatDocument(document: vscode.TextDocument): Promise<vscode.TextEdit[]> { return this.format(document); }
+	formatRange(document: vscode.TextDocument, range: vscode.Range): Promise<vscode.TextEdit[]> { return this.format(document, range); }
+	forceFormat(document: vscode.TextDocument): Promise<vscode.TextEdit[]> { return this.format(document, undefined, true); }
+
+	private async format(document: vscode.TextDocument, range?: vscode.Range, force = false, token?: vscode.CancellationToken): Promise<vscode.TextEdit[]> {
+		if (range && !formatterService.supportsRangeFormatting(document.languageId)) { return []; }
+		const uri = document.uri.toString();
+		const version = document.version;
+		const request = (this.requests.get(uri) ?? 0) + 1;
+		this.requests.set(uri, request);
+		const isLatest = () => version === document.version && this.requests.get(uri) === request;
+		const isCurrent = () => !token?.isCancellationRequested && isLatest();
+		const resolved = await inspectDocument(document, force);
+		if (!isCurrent()) { return []; }
+		this.changes.fire(resolved);
+		this.outputChannel.appendLine('[formatter] ' + document.fileName + ': ' + resolved.detail);
+		if (!resolved.config) {
+			if (resolved.state === 'error') { void vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: {0}', resolved.detail)); }
+			if (force && resolved.state === 'unsupported') {
+				void vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: language "{0}" is not supported', document.languageId));
 			}
-			return config;
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			this.outputChannel.appendLine(`[formatter] Skipping ${document.fileName}: ${message}`);
-			void vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: {0}', message));
-			return undefined;
+			return [];
 		}
-	}
-
-	async provideDocumentFormattingEdits(
-		document: vscode.TextDocument,
-		_options: vscode.FormattingOptions,
-		_token: vscode.CancellationToken,
-	): Promise<vscode.TextEdit[]> {
-		return this.formatDocument(document);
-	}
-
-	async provideDocumentRangeFormattingEdits(
-		document: vscode.TextDocument,
-		range: vscode.Range,
-		_options: vscode.FormattingOptions,
-		_token: vscode.CancellationToken,
-	): Promise<vscode.TextEdit[]> {
-		return this.formatRange(document, range);
-	}
-
-	/** Format the entire document. */
-	async formatDocument(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
-		const config = this.resolveFormattingConfig(document);
-		if (!config) { return []; }
-
 		const parser = formatterService.getParserForLanguageId(document.languageId);
 		if (!parser) { return []; }
-
+		try {
+			this.outputChannel.appendLine('[formatter] Options: ' + JSON.stringify(resolved.config));
+		} catch {
+			this.outputChannel.appendLine('[formatter] Options could not be serialized for logging');
+		}
+		this.changes.fire({ ...resolved, state: 'formatting', detail: 'Formatting with ' + parser });
 		const text = document.getText();
-		const filepath = document.uri.scheme === 'file' ? document.uri.fsPath : undefined;
-
-		this.outputChannel.appendLine(`[formatter] Formatting ${document.fileName} (parser: ${parser})`);
-		const result = await formatterService.formatDocument({ text, parser, filepath, config });
-
+		const input = { text, parser, filepath: document.uri.scheme === 'file' ? document.uri.fsPath : undefined, config: resolved.config };
+		const result = range
+			? await formatterService.formatRange({ ...input, rangeStart: document.offsetAt(range.start), rangeEnd: document.offsetAt(range.end) })
+			: await formatterService.formatDocument(input);
+		if (!isCurrent()) {
+			if (token?.isCancellationRequested && isLatest()) {
+				this.changes.fire({ ...resolved, state: 'ready', detail: 'Formatting cancelled' });
+			}
+			return [];
+		}
 		if (result.error) {
-			this.outputChannel.appendLine(`[formatter] Error: ${result.error}`);
-			vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: {0}', result.error));
+			this.outputChannel.appendLine('[formatter] Error: ' + result.error);
+			this.changes.fire({ ...resolved, state: 'error', detail: result.error });
+			void vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: {0}', result.error));
 			return [];
 		}
-
-		return computeMinimalEdit(document, text, result.formatted);
-	}
-
-	/** Format a selection range within the document. */
-	async formatRange(document: vscode.TextDocument, range: vscode.Range): Promise<vscode.TextEdit[]> {
-		if (!formatterService.supportsRangeFormatting(document.languageId)) { return []; }
-		const config = this.resolveFormattingConfig(document);
-		if (!config) { return []; }
-
-		const parser = formatterService.getParserForLanguageId(document.languageId);
-		if (!parser) { return []; }
-
-		const text = document.getText();
-		const filepath = document.uri.scheme === 'file' ? document.uri.fsPath : undefined;
-		const rangeStart = document.offsetAt(range.start);
-		const rangeEnd = document.offsetAt(range.end);
-
-		this.outputChannel.appendLine(`[formatter] Formatting range ${document.fileName}:${range.start.line + 1}-${range.end.line + 1}`);
-		const result = await formatterService.formatRange({
-			text, parser, filepath, config, rangeStart, rangeEnd,
-		});
-
-		if (result.error) {
-			this.outputChannel.appendLine(`[formatter] Error: ${result.error}`);
-			return [];
-		}
-
-		return computeMinimalEdit(document, text, result.formatted);
-	}
-
-	/** Force format — ignores .atmignore and requireConfig. */
-	async forceFormat(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
-		const parser = formatterService.getParserForLanguageId(document.languageId);
-		if (!parser) {
-			vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: language "{0}" is not supported', document.languageId));
-			return [];
-		}
-
-		const config = this.resolveFormattingConfig(document, true);
-		if (!config) { return []; }
-		const text = document.getText();
-		const filepath = document.uri.scheme === 'file' ? document.uri.fsPath : undefined;
-
-		this.outputChannel.appendLine(`[formatter] Force formatting ${document.fileName}`);
-		const result = await formatterService.formatDocument({ text, parser, filepath, config });
-
-		if (result.error) {
-			this.outputChannel.appendLine(`[formatter] Error: ${result.error}`);
-			vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: {0}', result.error));
-			return [];
-		}
-
-		return computeMinimalEdit(document, text, result.formatted);
+		const edits = computeMinimalEdit(document, text, result.formatted);
+		const detail = (edits.length ? 'Formatting edits prepared. ' : 'Already formatted. ') + resolved.detail;
+		this.outputChannel.appendLine('[formatter] ' + detail);
+		this.changes.fire({ ...resolved, state: 'success', detail });
+		return edits;
 	}
 }
 

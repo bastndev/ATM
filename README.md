@@ -370,7 +370,13 @@ To enable ATM's dedicated save action:
 
 Generic `source.fixAll` uses ATM when ATM is the default formatter or no default is selected. When another default formatter is selected, explicitly enable `source.fixAll.atm` to also run ATM. Set it to `"never"` to disable ATM's save action.
 
-Invalid JSON configuration or invalid formatting options stop formatting and report the error through ATM Formatter's warning/output. Force Format bypasses ignore rules and `requireConfig`, but still requires valid configuration. JSON-based `.prettierrc`, `.prettierrc.json`, and the `package.json` `prettier` object are currently supported.
+ATM uses Prettier's native configuration resolver, including YAML, JSON, JSON5, TOML, JavaScript modules, `.editorconfig`, and per-file `overrides`. Configuration is discovered from the document's directory upward, including parent monorepo folders. Project configuration overrides editor options; missing options retain ATM's document-scoped VS Code settings. Settings can also be overridden per workspace folder and language (for example, `[typescript]`). Project-local Prettier versions and third-party project plugins are not loaded by this feature.
+
+Invalid configuration stops formatting and reports the error through ATM Formatter's warning/output. Force Format bypasses ignore rules and `requireConfig`, but still requires valid configuration. `requireConfig` requires a Prettier configuration file; `.editorconfig` alone does not satisfy it. In an untrusted workspace, ATM uses its bundled formatter and VS Code settings without loading project configuration.
+
+The status indicator shows ready, formatting, completed, ignored, disabled, missing configuration, or error states, with details in its tooltip and output channel. It refreshes on settings and configuration/ignore file changes, including custom ignore paths. Explorer's Add to .atmignore command writes to the configured ignore file; selections outside that file's directory cannot be represented by Git ignore rules.
+
+JSON/YAML configuration changes take effect on the next operation. JavaScript configuration modules follow Node's module cache; use **Developer: Reload Window** after editing executable configuration if its old options persist.
 
 ### Dev Servers
 - `atm.goLive.port` — _Port for the live server; the next free port is used automatically if busy._

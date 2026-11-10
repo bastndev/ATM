@@ -108,46 +108,46 @@ suite('ATM Formatter — Configuration Errors', () => {
 	});
 	teardown(() => { fs.rmSync(workspaceRoot, { recursive: true, force: true }); });
 
-	test('missing configuration is distinct from invalid configuration', () => {
-		assert.deepStrictEqual(resolveConfigForFile(filePath, workspaceRoot), { config: null, configPath: null });
+	test('missing configuration is distinct from invalid configuration', async () => {
+		assert.deepStrictEqual(await resolveConfigForFile(filePath, true), { config: null, configPath: null });
 	});
 
-	for (const content of ['{', 'null', '[]', '"shared-config"', '42', 'semi: false']) {
-		test('rejects invalid or unsupported configuration: ' + content, () => {
+	for (const content of ['{', 'null', '[]', '"shared-config"', '42']) {
+		test('rejects invalid or unsupported configuration: ' + content, async () => {
 			const configPath = path.join(workspaceRoot, '.prettierrc');
 			fs.writeFileSync(configPath, content);
-			assert.throws(() => resolveConfigForFile(filePath, workspaceRoot), (error: Error) => error.message.includes(configPath));
+			await assert.rejects(() => resolveConfigForFile(filePath, true), (error: Error) => error.message.includes(configPath));
 		});
 	}
 
-	test('invalid nearest config does not fall back to valid parent config', () => {
+	test('invalid nearest config does not fall back to valid parent config', async () => {
 		fs.writeFileSync(path.join(workspaceRoot, '.prettierrc'), '{"semi":false}');
 		fs.mkdirSync(path.join(workspaceRoot, 'src'));
 		const configPath = path.join(workspaceRoot, 'src/.prettierrc.json');
 		fs.writeFileSync(configPath, '{');
-		assert.throws(() => resolveConfigForFile(path.join(workspaceRoot, 'src/app.ts'), workspaceRoot), /Invalid configuration/);
+		await assert.rejects(() => resolveConfigForFile(path.join(workspaceRoot, 'src/app.ts'), true), /Invalid configuration/);
 	});
 
-	test('accepts valid empty and BOM-prefixed config objects', () => {
+	test('accepts valid empty and BOM-prefixed config objects', async () => {
 		fs.writeFileSync(path.join(workspaceRoot, '.prettierrc'), '\uFEFF{}');
-		assert.deepStrictEqual(resolveConfigForFile(filePath, workspaceRoot).config, {});
+		assert.deepStrictEqual((await resolveConfigForFile(filePath, true)).config, {});
 	});
 
-	test('loads package.json configuration', () => {
+	test('loads package.json configuration', async () => {
 		fs.writeFileSync(path.join(workspaceRoot, 'package.json'), '{"prettier":{"semi":false}}');
-		assert.deepStrictEqual(resolveConfigForFile(filePath, workspaceRoot).config, { semi: false });
+		assert.deepStrictEqual((await resolveConfigForFile(filePath, true)).config, { semi: false });
 	});
 
-	test('ignores package.json without a prettier field', () => {
+	test('ignores package.json without a prettier field', async () => {
 		fs.writeFileSync(path.join(workspaceRoot, 'package.json'), '{"name":"test"}');
-		assert.strictEqual(resolveConfigForFile(filePath, workspaceRoot).configPath, null);
+		assert.strictEqual((await resolveConfigForFile(filePath, true)).configPath, null);
 	});
 
 	for (const content of ['{', '{"prettier":[]}', '{"prettier":null}', '{"prettier":"shared-config"}']) {
-		test('reports invalid package.json config: ' + content, () => {
+		test('reports invalid package.json config: ' + content, async () => {
 			const configPath = path.join(workspaceRoot, 'package.json');
 			fs.writeFileSync(configPath, content);
-			assert.throws(() => resolveConfigForFile(filePath, workspaceRoot), (error: Error) => error.message.includes(configPath));
+			await assert.rejects(() => resolveConfigForFile(filePath, true), (error: Error) => error.message.includes(configPath));
 		});
 	}
 });

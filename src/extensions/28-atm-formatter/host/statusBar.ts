@@ -1,77 +1,83 @@
 import * as vscode from 'vscode';
-import { formatterSettingKeys } from '../core/options';
-import { languageRegistry } from '../core/languageRegistry';
-import { isDocumentIgnored } from './formatterProvider';
+import { inspectDocument, type DocumentStatus, type FormatterState } from './documentConfig';
 
-/**
- * Status bar item showing whether ATM Formatter is active for the current
- * document's language.
- *
- * States:
- *  - Green  $(check)     — supported and not ignored
- *  - Yellow $(warning)   — supported but ignored by .atmignore
- *  - Hidden               — unsupported language or no editor
- */
-export class FormatterStatusBar {
+const icons: Record<FormatterState, string> = {
+	ready: 'check', formatting: 'sync~spin', success: 'check-all', ignored: 'warning',
+	disabled: 'circle-slash', 'missing-config': 'warning', error: 'error', unsupported: 'circle-slash',
+};
+
+export class FormatterStatusBar implements vscode.Disposable {
 	private readonly item: vscode.StatusBarItem;
-	private readonly outputChannel: vscode.OutputChannel;
+	private editor: vscode.TextEditor | undefined;
+	private revision = 0;
+	private disposed = false;
+	private timer: ReturnType<typeof setTimeout> | undefined;
+	private readonly outcomes = new Map<string, DocumentStatus>();
 
-	constructor(outputChannel: vscode.OutputChannel) {
-		this.outputChannel = outputChannel;
-		this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 50);
+	constructor(
+		private readonly outputChannel: Pick<vscode.OutputChannel, 'show'>,
+		item?: vscode.StatusBarItem,
+		private readonly inspect = inspectDocument,
+	) {
+		this.item = item ?? vscode.window.createStatusBarItem('atm.formatter.status', vscode.StatusBarAlignment.Right, 50);
+		this.item.name = 'ATM Formatter';
 		this.item.command = 'atm.formatter.showOutput';
 	}
 
-	/** Update the status bar based on the active editor's language. */
-	update(editor: vscode.TextEditor | undefined): void {
-		const enabled = vscode.workspace.getConfiguration().get<boolean>(formatterSettingKeys.enable, true);
-		if (!enabled) {
-			this.item.text = '$(circle-slash) Format |';
-			this.item.tooltip = 'ATM Formatter is disabled';
-			this.item.backgroundColor = undefined;
-			this.item.hide();
-			return;
-		}
+	async update(editor: vscode.TextEditor | undefined): Promise<void> {
+		if (this.timer) { clearTimeout(this.timer); this.timer = undefined; }
+		this.editor = editor;
+		const revision = ++this.revision;
+		if (!editor) { this.item.hide(); return; }
+		const document = editor.document;
+		const cached = this.outcomes.get(document.uri.toString());
+		if (cached?.version === document.version) { this.render(cached); return; }
+		const status = await this.inspect(document);
+		if (this.disposed || revision !== this.revision || status.version !== document.version) { return; }
+		this.render(status);
+	}
 
-		if (!editor || !editor.document) {
-			this.item.hide();
-			return;
-		}
-
-		const supported = languageRegistry.isLanguageSupported(editor.document.languageId);
-		if (!supported) {
-			this.item.hide();
-			return;
-		}
-
-		let ignored: boolean;
-		try {
-			ignored = isDocumentIgnored(editor.document);
-		} catch (error) {
-			this.item.text = '$(error) Format |';
-			this.item.tooltip = `ATM Formatter — could not read ignore rules: ${String(error)}`;
-			this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
-			this.item.show();
-			return;
-		}
-		if (ignored) {
-			this.item.text = '$(warning) Format |';
-			this.item.tooltip = `ATM Formatter — ${editor.document.languageId} (ignored by .atmignore)`;
-			this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-			this.item.show();
-		} else {
-			this.item.text = '$(check) Format |';
-			this.item.tooltip = `ATM Formatter — ${editor.document.languageId}`;
-			this.item.backgroundColor = undefined;
-			this.item.show();
+	record(status: DocumentStatus): void {
+		if (this.disposed) { return; }
+		this.outcomes.set(status.uri, status);
+		if (this.editor?.document.uri.toString() === status.uri && this.editor.document.version === status.version) {
+			this.revision++;
+			this.render(status);
 		}
 	}
 
-	showOutput(): void {
-		this.outputChannel.show(true);
+	invalidate(): void {
+		this.outcomes.clear();
+		void this.update(this.editor);
 	}
 
+	forget(document: vscode.TextDocument): void { this.outcomes.delete(document.uri.toString()); }
+
+	documentChanged(document: vscode.TextDocument): void {
+		this.forget(document);
+		this.revision++;
+		if (this.timer) { clearTimeout(this.timer); }
+		// Avoid reloading configuration from disk on every keystroke.
+		this.timer = setTimeout(() => { this.timer = undefined; void this.update(this.editor); }, 150);
+	}
+
+	private render(status: DocumentStatus): void {
+		if (status.state === 'unsupported') { this.item.hide(); return; }
+		this.item.text = '$(' + icons[status.state] + ') Format |';
+		this.item.tooltip = 'ATM Formatter — ' + status.detail;
+		this.item.backgroundColor = status.state === 'error'
+			? new vscode.ThemeColor('statusBarItem.errorBackground')
+			: status.state === 'ignored' || status.state === 'missing-config'
+				? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
+		this.item.show();
+	}
+
+	showOutput(): void { this.outputChannel.show(true); }
 	dispose(): void {
+		this.disposed = true;
+		if (this.timer) { clearTimeout(this.timer); }
+		this.revision++;
+		this.outcomes.clear();
 		this.item.dispose();
 	}
 }

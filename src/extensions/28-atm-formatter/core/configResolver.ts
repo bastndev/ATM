@@ -1,101 +1,58 @@
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import * as path from 'path';
-import type { FormatterConfig, ResolvedConfig } from './types';
+import type { ResolvedConfig } from './types';
 
-/**
- * Resolves Prettier configuration for a given file path.
- *
- * This is a lightweight implementation that supports JSON-based config
- * files (`.prettierrc`, `.prettierrc.json`, `package.json` `prettier` key).
- * JS/TS/YAML/TOML config support can be added later by extending
- * `CONFIG_FILENAMES` and the `loadConfigFile` switch.
- *
- * Walks up from the file's directory until a config is found or the
- * workspace root is reached.
- */
-
-const CONFIG_FILENAMES = [
-	'.prettierrc',
-	'.prettierrc.json',
-] as const;
-
-function readJsonObject(filePath: string): Record<string, unknown> {
+async function validateJsonConfig(configPath: string): Promise<void> {
+	const isPackage = path.basename(configPath) === 'package.json';
+	if (!isPackage && !['.prettierrc', '.prettierrc.json'].includes(path.basename(configPath))) { return; }
+	const content = (await fs.readFile(configPath, 'utf-8')).replace(/^\uFEFF/, '');
+	let value: unknown;
 	try {
-		const content = fs.readFileSync(filePath, 'utf-8');
-		const value: unknown = JSON.parse(content.replace(/^\uFEFF/, ''));
-		if (!value || typeof value !== 'object' || Array.isArray(value)) {
-			throw new Error('Expected a JSON object');
-		}
-		return value as Record<string, unknown>;
+		value = JSON.parse(content);
 	} catch (error) {
-		throw new Error(`Invalid configuration at ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+		// A bare .prettierrc can contain YAML; let Prettier validate that format.
+		if (path.basename(configPath) === '.prettierrc' && !content.trimStart().startsWith('{')) { return; }
+		throw error;
+	}
+	if (isPackage) { value = (value as Record<string, unknown>)?.prettier; }
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw new Error('Expected a configuration object');
 	}
 }
 
-function loadPrettierFromPackageJson(pkgPath: string): FormatterConfig | null {
-	const pkg = readJsonObject(pkgPath);
-	if (!Object.hasOwn(pkg, 'prettier')) { return null; }
-	if (!pkg.prettier || typeof pkg.prettier !== 'object' || Array.isArray(pkg.prettier)) {
-		throw new Error(`Invalid configuration at ${pkgPath}: the "prettier" field must be a JSON object. Shared configuration packages are not supported yet.`);
-	}
-	return pkg.prettier as FormatterConfig;
-}
-
-/**
- * Walks up from `startDir` looking for a Prettier config file.
- * Stops at `rootDir` (inclusive).
- */
-function findConfigFile(startDir: string, rootDir: string): string | null {
-	let dir = startDir;
+async function validatePackageFiles(filePath: string, configPath: string | null): Promise<void> {
+	let directory = path.dirname(filePath);
+	const stop = configPath ? path.dirname(configPath) : undefined;
 	while (true) {
-		for (const name of CONFIG_FILENAMES) {
-			const candidate = path.join(dir, name);
-			if (fs.existsSync(candidate)) {
-				return candidate;
+		const packagePath = path.join(directory, 'package.json');
+		try {
+			const value: unknown = JSON.parse((await fs.readFile(packagePath, 'utf-8')).replace(/^\uFEFF/, ''));
+			if (!value || typeof value !== 'object' || Array.isArray(value)) { throw new Error('Expected a package object'); }
+			if (Object.hasOwn(value, 'prettier')) { await validateJsonConfig(packagePath); }
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+				throw new Error(packagePath + ': ' + (error instanceof Error ? error.message : String(error)));
 			}
 		}
-		// Check package.json prettier key
-		const pkgPath = path.join(dir, 'package.json');
-		if (fs.existsSync(pkgPath)) {
-			if (loadPrettierFromPackageJson(pkgPath) !== null) { return pkgPath; }
-		}
-
-		if (path.resolve(dir) === path.resolve(rootDir)) {
-			break;
-		}
-		const parent = path.dirname(dir);
-		if (parent === dir) {
-			break;
-		}
-		dir = parent;
+		if (directory === stop) { break; }
+		const parent = path.dirname(directory);
+		if (parent === directory) { break; }
+		directory = parent;
 	}
-	return null;
 }
 
-/** Load a config from a resolved path (supports .prettierrc/.json + package.json). */
-function loadConfigFromPath(configPath: string): FormatterConfig | null {
-	const base = path.basename(configPath);
-	if (base === 'package.json') {
-		return loadPrettierFromPackageJson(configPath);
+/** Native Prettier discovery and per-file overrides; executable config needs workspace trust. */
+export async function resolveConfigForFile(filePath: string, trusted: boolean): Promise<ResolvedConfig> {
+	if (!trusted) { return { config: null, configPath: null }; }
+	let configPath: string | null = null;
+	try {
+		const prettier = await import('prettier');
+		configPath = await prettier.resolveConfigFile(filePath);
+		await validatePackageFiles(filePath, configPath);
+		if (configPath) { await validateJsonConfig(configPath); }
+		const config = await prettier.resolveConfig(filePath, { editorconfig: true, useCache: false });
+		return { config, configPath };
+	} catch (error) {
+		throw new Error('Invalid configuration at ' + (configPath ?? filePath) + ': ' + (error instanceof Error ? error.message : String(error)));
 	}
-	return readJsonObject(configPath) as FormatterConfig;
-}
-
-/**
- * Resolve the Prettier config for a document at `filePath`, walking up
- * from the file's directory to `workspaceRoot`.
- *
- * @returns `{ config: null, configPath: null }` when no config is found.
- */
-export function resolveConfigForFile(
-	filePath: string,
-	workspaceRoot: string,
-): ResolvedConfig {
-	const startDir = path.dirname(filePath);
-	const configPath = findConfigFile(startDir, workspaceRoot);
-	if (!configPath) {
-		return { config: null, configPath: null };
-	}
-	const config = loadConfigFromPath(configPath);
-	return { config, configPath };
 }

@@ -1,13 +1,10 @@
 /**
  * Central registry of all bundled Prettier plugin packages.
  *
- * We use `prettier/standalone` (93 kb core) and import only the parser
- * packages we need.  This keeps the bundle at ~1.9 mb instead of the
- * 3.5 mb full Prettier build that includes every parser.
- *
- * The Astro plugin's WASM parser (`@astrojs/compiler`, ~5 MB) is
- * externalized in esbuild and loaded lazily from `node_modules` only
- * when an `.astro` file is actually formatted.
+ * Formatting uses Prettier's standalone API with the parsers listed here.
+ * The Prettier runtime is copied into dist/node_modules by esbuild.js so its
+ * native configuration loaders retain their runtime files. The Astro compiler
+ * and sass formatter are also externalized and loaded on demand.
  *
  * ════════════════════════════════════════════════════════════════════
  *  TO ADD A NEW TECHNOLOGY THAT NEEDS A NEW PARSER PACKAGE
