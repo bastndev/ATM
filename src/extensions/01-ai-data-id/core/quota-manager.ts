@@ -343,9 +343,6 @@ export class QuotaManager {
 		const planStatus = data.userStatus?.planStatus;
 		if (!planStatus) { return undefined; }
 
-		const monthly = planStatus.planInfo?.monthlyPromptTokens;
-		const available = planStatus.availablePromptTokens;
-		if (!Number.isFinite(monthly) || !Number.isFinite(available) || monthly <= 0) {
 		const monthly = planStatus.planInfo?.monthlyPromptTokens ?? planStatus.planInfo?.monthlyPromptCredits;
 		const available = planStatus.availablePromptTokens ?? planStatus.availablePromptCredits;
 		if (monthly === undefined || available === undefined || !Number.isFinite(monthly) || !Number.isFinite(available) || monthly <= 0) {
