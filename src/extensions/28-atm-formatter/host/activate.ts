@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { AtmFormatterProvider, AtmFormatterCodeActionProvider, buildDocumentSelectors, buildRangeSelectors } from './formatterProvider';
+import { AtmFormatterProvider, buildDocumentSelectors, buildRangeSelectors } from './formatterProvider';
+import { AtmFormatterCodeActionProvider } from './codeActionProvider';
 import { FormatterStatusBar } from './statusBar';
 import { registerFormatterCommands } from './commands';
 import { formatterSettingKeys } from '../core/options';
@@ -38,8 +39,8 @@ export function activateAtmFormatter(context: vscode.ExtensionContext): void {
 
 	// Register code-action provider for "format on save"
 	context.subscriptions.push(
-		vscode.languages.registerCodeActionsProvider(docSelectors, new AtmFormatterCodeActionProvider(), {
-			providedCodeActionKinds: [vscode.CodeActionKind.SourceFixAll],
+		vscode.languages.registerCodeActionsProvider(docSelectors, new AtmFormatterCodeActionProvider(provider, context.extension.id), {
+			providedCodeActionKinds: [AtmFormatterCodeActionProvider.kind],
 		}),
 	);
 

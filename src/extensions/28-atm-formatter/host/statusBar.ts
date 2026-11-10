@@ -44,7 +44,16 @@ export class FormatterStatusBar {
 			return;
 		}
 
-		const ignored = isDocumentIgnored(editor.document);
+		let ignored: boolean;
+		try {
+			ignored = isDocumentIgnored(editor.document);
+		} catch (error) {
+			this.item.text = '$(error) Format |';
+			this.item.tooltip = `ATM Formatter — could not read ignore rules: ${String(error)}`;
+			this.item.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+			this.item.show();
+			return;
+		}
 		if (ignored) {
 			this.item.text = '$(warning) Format |';
 			this.item.tooltip = `ATM Formatter — ${editor.document.languageId} (ignored by .atmignore)`;

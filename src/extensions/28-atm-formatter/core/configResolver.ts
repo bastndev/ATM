@@ -19,29 +19,26 @@ const CONFIG_FILENAMES = [
 	'.prettierrc.json',
 ] as const;
 
-/** Read and parse a JSON config file, returning `null` on any error. */
-function loadJsonConfig(filePath: string): FormatterConfig | null {
+function readJsonObject(filePath: string): Record<string, unknown> {
 	try {
 		const content = fs.readFileSync(filePath, 'utf-8');
-		return JSON.parse(content) as FormatterConfig;
-	} catch {
-		return null;
+		const value: unknown = JSON.parse(content.replace(/^\uFEFF/, ''));
+		if (!value || typeof value !== 'object' || Array.isArray(value)) {
+			throw new Error('Expected a JSON object');
+		}
+		return value as Record<string, unknown>;
+	} catch (error) {
+		throw new Error(`Invalid configuration at ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
 	}
 }
 
-/** Extract the `prettier` key from a `package.json`, or `null`. */
-function loadPrettierFromPackageJson(dir: string): FormatterConfig | null {
-	try {
-		const pkgPath = path.join(dir, 'package.json');
-		const content = fs.readFileSync(pkgPath, 'utf-8');
-		const pkg = JSON.parse(content) as Record<string, unknown>;
-		if (pkg.prettier && typeof pkg.prettier === 'object') {
-			return pkg.prettier as FormatterConfig;
-		}
-		return null;
-	} catch {
-		return null;
+function loadPrettierFromPackageJson(pkgPath: string): FormatterConfig | null {
+	const pkg = readJsonObject(pkgPath);
+	if (!Object.hasOwn(pkg, 'prettier')) { return null; }
+	if (!pkg.prettier || typeof pkg.prettier !== 'object' || Array.isArray(pkg.prettier)) {
+		throw new Error(`Invalid configuration at ${pkgPath}: the "prettier" field must be a JSON object. Shared configuration packages are not supported yet.`);
 	}
+	return pkg.prettier as FormatterConfig;
 }
 
 /**
@@ -60,15 +57,7 @@ function findConfigFile(startDir: string, rootDir: string): string | null {
 		// Check package.json prettier key
 		const pkgPath = path.join(dir, 'package.json');
 		if (fs.existsSync(pkgPath)) {
-			try {
-				const content = fs.readFileSync(pkgPath, 'utf-8');
-				const pkg = JSON.parse(content) as Record<string, unknown>;
-				if (pkg.prettier && typeof pkg.prettier === 'object') {
-					return pkgPath;
-				}
-			} catch {
-				// ignore malformed package.json
-			}
+			if (loadPrettierFromPackageJson(pkgPath) !== null) { return pkgPath; }
 		}
 
 		if (path.resolve(dir) === path.resolve(rootDir)) {
@@ -87,10 +76,9 @@ function findConfigFile(startDir: string, rootDir: string): string | null {
 function loadConfigFromPath(configPath: string): FormatterConfig | null {
 	const base = path.basename(configPath);
 	if (base === 'package.json') {
-		const dir = path.dirname(configPath);
-		return loadPrettierFromPackageJson(dir);
+		return loadPrettierFromPackageJson(configPath);
 	}
-	return loadJsonConfig(configPath);
+	return readJsonObject(configPath) as FormatterConfig;
 }
 
 /**
@@ -110,87 +98,4 @@ export function resolveConfigForFile(
 	}
 	const config = loadConfigFromPath(configPath);
 	return { config, configPath };
-}
-
-/* ── Ignore files ──────────────────────────────────────────────────── */
-
-/**
- * Reads the configured ignore file and `.prettierignore`, returning
- * non-comment, non-empty patterns. Returns `[]` if neither file exists.
- */
-export function readIgnorePatterns(ignorePath: string, workspaceRoot: string): string[] {
-	const fullPath = path.isAbsolute(ignorePath)
-		? ignorePath
-		: path.join(workspaceRoot, ignorePath);
-	const prettierIgnorePath = path.join(workspaceRoot, '.prettierignore');
-	const ignorePaths = [fullPath];
-	// TODO everything: remove temporary .prettierignore support.
-	if (path.resolve(fullPath) !== path.resolve(prettierIgnorePath)) {
-		ignorePaths.push(prettierIgnorePath);
-	}
-
-	return ignorePaths.flatMap((filePath) => {
-		try {
-			const content = fs.readFileSync(filePath, 'utf-8');
-			return content
-				.split(/\r?\n/)
-				.map((line) => line.trim())
-				.filter((line) => line.length > 0 && !line.startsWith('#'));
-		} catch {
-			return [];
-		}
-	});
-}
-
-/**
- * Simple gitignore-style pattern matcher.
- *
- * Supports:
- *  - Exact path matches (src/foo.ts)
- *  - Directory prefixes (src/)
- *  - Glob patterns (.ts extension globs, double-star recursive globs)
- *
- * This is a minimal implementation — not a full gitignore parser.
- * For complex patterns, consider using the "ignore" npm package in the future.
- */
-export function isPathIgnored(filePath: string, workspaceRoot: string, patterns: string[]): boolean {
-	const relative = path.relative(workspaceRoot, filePath).replace(/\\/g, '/');
-	for (const pattern of patterns) {
-		if (matchPattern(relative, pattern)) {
-			return true;
-		}
-		// Also check the basename for simple *.ext patterns
-		if (pattern.startsWith('*.') && relative.endsWith(pattern.slice(1))) {
-			return true;
-		}
-	}
-	return false;
-}
-
-function matchPattern(relative: string, pattern: string): boolean {
-	// Normalize pattern
-	const p = pattern.replace(/\\/g, '/');
-
-	// Exact match
-	if (relative === p) { return true; }
-
-	// Directory prefix: "src/" matches anything under src/
-	if (p.endsWith('/') && (relative.startsWith(p) || relative.startsWith(p.slice(0, -1) + '/'))) {
-		return true;
-	}
-
-	// Simple glob with ** (convert to regex)
-	if (p.includes('*')) {
-		const regexStr = p
-			.replace(/\*\*/g, '<<DBLSTAR>>')
-			.replace(/\*/g, '[^/]*')
-			.replace(/<<DBLSTAR>>/g, '.*')
-			.replace(/\?/g, '[^/]');
-		const regex = new RegExp(`^${regexStr}$`);
-		if (regex.test(relative)) { return true; }
-		// Also test without leading ./
-		if (regex.test(relative.replace(/^\.\//, ''))) { return true; }
-	}
-
-	return false;
 }

@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { formatterService } from '../core/formatterService';
 import { languageRegistry } from '../core/languageRegistry';
 import { configFromVsCodeSettings, mergeConfig, formatterSettingKeys } from '../core/options';
-import { resolveConfigForFile, readIgnorePatterns, isPathIgnored } from '../core/configResolver';
+import { resolveConfigForFile } from '../core/configResolver';
+import { isFileIgnored } from '../core/ignoreResolver';
 import type { FormatterConfig } from '../core/types';
 
 /**
@@ -51,9 +51,7 @@ export function isDocumentIgnored(document: vscode.TextDocument): boolean {
 	if (document.uri.scheme !== 'file') { return false; }
 	const workspaceRoot = getWorkspaceRoot(document);
 	const ignorePathSetting = vscode.workspace.getConfiguration().get<string>(formatterSettingKeys.ignorePath) ?? '.atmignore';
-	const patterns = readIgnorePatterns(ignorePathSetting, workspaceRoot);
-	if (patterns.length === 0) { return false; }
-	return isPathIgnored(document.uri.fsPath, workspaceRoot, patterns);
+	return isFileIgnored(document.uri.fsPath, workspaceRoot, ignorePathSetting);
 }
 
 /** Compute a single minimal TextEdit by diffing common prefix/suffix. */
@@ -92,20 +90,28 @@ function shouldFormat(document: vscode.TextDocument): boolean {
 	return true;
 }
 
-/** Check if requireConfig is set and no config file exists. */
-function isConfigRequiredButMissing(document: vscode.TextDocument): boolean {
-	const requireConfig = vscode.workspace.getConfiguration().get<boolean>(formatterSettingKeys.requireConfig, false);
-	if (!requireConfig) { return false; }
-	if (document.uri.scheme !== 'file') { return false; }
-	const workspaceRoot = getWorkspaceRoot(document);
-	const { configPath } = resolveConfigForFile(document.uri.fsPath, workspaceRoot);
-	return configPath === null;
-}
-
 export class AtmFormatterProvider
 	implements vscode.DocumentFormattingEditProvider, vscode.DocumentRangeFormattingEditProvider {
 
-	constructor(private readonly outputChannel: vscode.OutputChannel) {}
+	constructor(private readonly outputChannel: Pick<vscode.OutputChannel, 'appendLine'>) {}
+
+	private resolveFormattingConfig(document: vscode.TextDocument, force = false): FormatterConfig | undefined {
+		try {
+			if (!force && !shouldFormat(document)) { return undefined; }
+			const { config, hasConfigFile } = resolveFullConfig(document);
+			const requireConfig = vscode.workspace.getConfiguration().get<boolean>(formatterSettingKeys.requireConfig, false);
+			if (!force && requireConfig && document.uri.scheme === 'file' && !hasConfigFile) {
+				this.outputChannel.appendLine(`[formatter] Skipping ${document.fileName} — no config found and requireConfig is on`);
+				return undefined;
+			}
+			return config;
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			this.outputChannel.appendLine(`[formatter] Skipping ${document.fileName}: ${message}`);
+			void vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: {0}', message));
+			return undefined;
+		}
+	}
 
 	async provideDocumentFormattingEdits(
 		document: vscode.TextDocument,
@@ -126,16 +132,12 @@ export class AtmFormatterProvider
 
 	/** Format the entire document. */
 	async formatDocument(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {
-		if (!shouldFormat(document)) { return []; }
-		if (isConfigRequiredButMissing(document)) {
-			this.outputChannel.appendLine(`[formatter] Skipping ${document.fileName} — no config found and requireConfig is on`);
-			return [];
-		}
+		const config = this.resolveFormattingConfig(document);
+		if (!config) { return []; }
 
 		const parser = formatterService.getParserForLanguageId(document.languageId);
 		if (!parser) { return []; }
 
-		const { config } = resolveFullConfig(document);
 		const text = document.getText();
 		const filepath = document.uri.scheme === 'file' ? document.uri.fsPath : undefined;
 
@@ -153,13 +155,13 @@ export class AtmFormatterProvider
 
 	/** Format a selection range within the document. */
 	async formatRange(document: vscode.TextDocument, range: vscode.Range): Promise<vscode.TextEdit[]> {
-		if (!shouldFormat(document)) { return []; }
 		if (!formatterService.supportsRangeFormatting(document.languageId)) { return []; }
+		const config = this.resolveFormattingConfig(document);
+		if (!config) { return []; }
 
 		const parser = formatterService.getParserForLanguageId(document.languageId);
 		if (!parser) { return []; }
 
-		const { config } = resolveFullConfig(document);
 		const text = document.getText();
 		const filepath = document.uri.scheme === 'file' ? document.uri.fsPath : undefined;
 		const rangeStart = document.offsetAt(range.start);
@@ -186,7 +188,8 @@ export class AtmFormatterProvider
 			return [];
 		}
 
-		const { config } = resolveFullConfig(document);
+		const config = this.resolveFormattingConfig(document, true);
+		if (!config) { return []; }
 		const text = document.getText();
 		const filepath = document.uri.scheme === 'file' ? document.uri.fsPath : undefined;
 
@@ -200,36 +203,6 @@ export class AtmFormatterProvider
 		}
 
 		return computeMinimalEdit(document, text, result.formatted);
-	}
-}
-
-/* ── Code action provider for "format on save" ─────────────────────── */
-
-export class AtmFormatterCodeActionProvider implements vscode.CodeActionProvider {
-	provideCodeActions(
-		document: vscode.TextDocument,
-		_range: vscode.Range | vscode.Selection,
-		context: vscode.CodeActionContext,
-		_token: vscode.CancellationToken,
-	): vscode.CodeAction[] {
-		if (context.only?.value !== 'source.fixAll' && context.only?.value !== 'source.organizeImports') {
-			// Only show for fixAll (format on save)
-			if (!context.only) { return []; }
-		}
-
-		if (!languageRegistry.isLanguageSupported(document.languageId)) { return []; }
-		if (isDocumentIgnored(document)) { return []; }
-
-		const action = new vscode.CodeAction(
-			vscode.l10n.t('Format with ATM Formatter'),
-			vscode.CodeActionKind.SourceFixAll,
-		);
-		action.command = {
-			title: 'Format',
-			command: 'atm.formatter.formatDocument',
-			arguments: [document.uri],
-		};
-		return [action];
 	}
 }
 

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { literalIgnorePattern } from '../core/ignoreResolver';
 
 type WorkspaceResources = {
 	folder: vscode.WorkspaceFolder;
@@ -18,13 +19,13 @@ async function readIgnoreFile(uri: vscode.Uri): Promise<string> {
 }
 
 async function toIgnorePattern(folder: vscode.WorkspaceFolder, resource: vscode.Uri): Promise<string | undefined> {
-	const relativePath = path.relative(folder.uri.fsPath, resource.fsPath).replace(/\\/g, '/');
+	const relativePath = path.relative(folder.uri.fsPath, resource.fsPath).split(path.sep).join('/');
 	if (!relativePath || relativePath.startsWith('../')) {
 		return undefined;
 	}
 
 	const stat = await vscode.workspace.fs.stat(resource);
-	return (stat.type & vscode.FileType.Directory) !== 0 ? `${relativePath}/` : relativePath;
+	return literalIgnorePattern(relativePath, (stat.type & vscode.FileType.Directory) !== 0);
 }
 
 async function appendPatterns(uri: vscode.Uri, patterns: string[]): Promise<number> {
@@ -32,7 +33,6 @@ async function appendPatterns(uri: vscode.Uri, patterns: string[]): Promise<numb
 	const existing = new Set(
 		content
 			.split(/\r?\n/)
-			.map((line) => line.trim())
 			.filter(Boolean),
 	);
 	const additions = patterns.filter((pattern) => !existing.has(pattern));

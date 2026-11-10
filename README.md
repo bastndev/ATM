@@ -356,6 +356,22 @@ You can customize ATM's behavior directly via your VS Code settings. Tweak the e
 - `atm.formatter.printWidth`, `atm.formatter.tabWidth`, `atm.formatter.useTabs`, `atm.formatter.semi`, `atm.formatter.singleQuote`, `atm.formatter.trailingComma` — _Prettier-compatible formatting options._
 - `atm.formatter.ignorePath` — _Path to the ignore file (default <code>.atmignore</code>)._
 
+ATM ignore files use Git ignore syntax, including `**`, root-anchored paths, and `!` exceptions. Patterns are relative to the ignore file's directory. An excluded parent directory must be included again before a file inside it can be restored. ATM also honors the workspace's `.prettierignore`; an exception in one ignore file does not override an exclusion in the other.
+
+To enable ATM's dedicated save action:
+
+```json
+{
+  "editor.codeActionsOnSave": {
+    "source.fixAll.atm": "explicit"
+  }
+}
+```
+
+Generic `source.fixAll` uses ATM when ATM is the default formatter or no default is selected. When another default formatter is selected, explicitly enable `source.fixAll.atm` to also run ATM. Set it to `"never"` to disable ATM's save action.
+
+Invalid JSON configuration or invalid formatting options stop formatting and report the error through ATM Formatter's warning/output. Force Format bypasses ignore rules and `requireConfig`, but still requires valid configuration. JSON-based `.prettierrc`, `.prettierrc.json`, and the `package.json` `prettier` object are currently supported.
+
 ### Dev Servers
 - `atm.goLive.port` — _Port for the live server; the next free port is used automatically if busy._
 - `atm.goLive.host` — _Host interface Go Live binds to (use <code>0.0.0.0</code> to expose on your LAN)._
