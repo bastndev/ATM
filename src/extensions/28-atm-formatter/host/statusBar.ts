@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { inspectDocument, type DocumentStatus, type FormatterState } from './documentConfig';
 
 const icons: Record<FormatterState, string> = {
-	ready: 'check', formatting: 'sync~spin', success: 'check-all', ignored: 'warning',
+	ready: 'check', formatting: 'sync~spin', success: 'check-all', ignored: 'circle-slash',
 	disabled: 'circle-slash', 'missing-config': 'warning', error: 'error', unsupported: 'circle-slash',
 };
 
@@ -67,7 +67,7 @@ export class FormatterStatusBar implements vscode.Disposable {
 		this.item.tooltip = 'ATM Formatter — ' + status.detail;
 		this.item.backgroundColor = status.state === 'error'
 			? new vscode.ThemeColor('statusBarItem.errorBackground')
-			: status.state === 'ignored' || status.state === 'missing-config'
+			: status.state === 'missing-config'
 				? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
 		this.item.show();
 	}
