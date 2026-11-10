@@ -1,8 +1,10 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { literalIgnorePattern } from '../core/ignoreResolver';
+import { formatterSettingKeys } from '../core/options';
 
 type WorkspaceResources = {
-	folder: vscode.WorkspaceFolder;
+	ignoreUri: vscode.Uri;
 	resources: vscode.Uri[];
 };
 
@@ -17,14 +19,14 @@ async function readIgnoreFile(uri: vscode.Uri): Promise<string> {
 	}
 }
 
-async function toIgnorePattern(folder: vscode.WorkspaceFolder, resource: vscode.Uri): Promise<string | undefined> {
-	const relativePath = path.relative(folder.uri.fsPath, resource.fsPath).replace(/\\/g, '/');
+async function toIgnorePattern(ignoreUri: vscode.Uri, resource: vscode.Uri): Promise<string | undefined> {
+	const relativePath = path.relative(path.dirname(ignoreUri.fsPath), resource.fsPath).split(path.sep).join('/');
 	if (!relativePath || relativePath.startsWith('../')) {
 		return undefined;
 	}
 
 	const stat = await vscode.workspace.fs.stat(resource);
-	return (stat.type & vscode.FileType.Directory) !== 0 ? `${relativePath}/` : relativePath;
+	return literalIgnorePattern(relativePath, (stat.type & vscode.FileType.Directory) !== 0);
 }
 
 async function appendPatterns(uri: vscode.Uri, patterns: string[]): Promise<number> {
@@ -32,16 +34,16 @@ async function appendPatterns(uri: vscode.Uri, patterns: string[]): Promise<numb
 	const existing = new Set(
 		content
 			.split(/\r?\n/)
-			.map((line) => line.trim())
 			.filter(Boolean),
 	);
-	const additions = patterns.filter((pattern) => !existing.has(pattern));
+	const additions = [...new Set(patterns)].filter((pattern) => !existing.has(pattern));
 	if (additions.length === 0) {
 		return 0;
 	}
 
 	const newline = content.includes('\r\n') ? '\r\n' : '\n';
 	const separator = content.length > 0 && !content.endsWith('\n') && !content.endsWith('\r') ? newline : '';
+	await vscode.workspace.fs.createDirectory(vscode.Uri.file(path.dirname(uri.fsPath)));
 	await vscode.workspace.fs.writeFile(
 		uri,
 		new TextEncoder().encode(`${content}${separator}${additions.join(newline)}${newline}`),
@@ -50,11 +52,11 @@ async function appendPatterns(uri: vscode.Uri, patterns: string[]): Promise<numb
 }
 
 export async function addResourcesToIgnoreFile(
-	ignoreFileName: '.atmignore' | '.prettierignore',
 	resourceUri: vscode.Uri | undefined,
 	selectedUris: readonly vscode.Uri[] | undefined,
 	outputChannel: vscode.OutputChannel,
 ): Promise<void> {
+	const ignoreFileName = '.atmignore';
 	const resources = selectedUris?.length ? selectedUris : resourceUri ? [resourceUri] : [];
 	if (resources.length === 0) {
 		vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: no file or folder selected'));
@@ -66,9 +68,12 @@ export async function addResourcesToIgnoreFile(
 		if (resource.scheme !== 'file') { continue; }
 		const folder = vscode.workspace.getWorkspaceFolder(resource);
 		if (!folder) { continue; }
-		const group = byWorkspace.get(folder.uri.toString()) ?? { folder, resources: [] };
+		const document = vscode.workspace.textDocuments.find((open) => open.uri.toString() === resource.toString());
+		const setting = vscode.workspace.getConfiguration(undefined, document ?? resource).get<string>(formatterSettingKeys.ignorePath, '.atmignore');
+		const ignoreUri = vscode.Uri.file(path.resolve(folder.uri.fsPath, setting));
+		const group = byWorkspace.get(ignoreUri.toString()) ?? { ignoreUri, resources: [] };
 		group.resources.push(resource);
-		byWorkspace.set(folder.uri.toString(), group);
+		byWorkspace.set(ignoreUri.toString(), group);
 	}
 
 	if (byWorkspace.size === 0) {
@@ -78,14 +83,21 @@ export async function addResourcesToIgnoreFile(
 
 	try {
 		let added = 0;
-		for (const { folder, resources: workspaceResources } of byWorkspace.values()) {
+		let outside = false;
+		for (const { ignoreUri, resources: workspaceResources } of byWorkspace.values()) {
 			const patterns = (await Promise.all(
-				workspaceResources.map((resource) => toIgnorePattern(folder, resource)),
+				workspaceResources.map((resource) => toIgnorePattern(ignoreUri, resource)),
 			)).filter((pattern): pattern is string => pattern !== undefined);
-			added += await appendPatterns(vscode.Uri.joinPath(folder.uri, ignoreFileName), patterns);
+			if (patterns.length !== workspaceResources.length) {
+				outside = true;
+				vscode.window.showWarningMessage(vscode.l10n.t('ATM Formatter: selection is outside the ignore file directory'));
+			}
+			added += await appendPatterns(ignoreUri, patterns);
+			outputChannel.appendLine('[formatter] Updated ignore file: ' + ignoreUri.fsPath);
 		}
 
 		if (added === 0) {
+			if (outside) { return; }
 			vscode.window.showInformationMessage(vscode.l10n.t('ATM Formatter: selection is already in {0}', ignoreFileName));
 			return;
 		}

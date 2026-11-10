@@ -49,6 +49,7 @@ const IGNORED_FOLDERS = new Set([
 
 // ── Exact filenames to ignore ────────────────────────────────────────────────
 const IGNORED_FILENAMES = new Set([
+  'notes.md',
   'package-lock.json',
   'bun.lock',
   'bun.lockb',

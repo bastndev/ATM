@@ -5,7 +5,7 @@ import * as path from 'path';
 import { suite, test } from 'mocha';
 import { languageRegistry } from '../extensions/28-atm-formatter/core/languageRegistry';
 import { configFromVsCodeSettings, mergeConfig, formatterSettingKeys } from '../extensions/28-atm-formatter/core/options';
-import { isPathIgnored, readIgnorePatterns } from '../extensions/28-atm-formatter/core/configResolver';
+import { isPathIgnored, isFileIgnored } from '../extensions/28-atm-formatter/core/ignoreResolver';
 import { FormatterService } from '../extensions/28-atm-formatter/core/formatterService';
 
 suite('ATM Formatter — Language Registry', () => {
@@ -188,12 +188,13 @@ suite('ATM Formatter — Options Mapper', () => {
 });
 
 suite('ATM Formatter — Ignore Patterns', () => {
-	test('combines .atmignore and .prettierignore patterns', () => {
+	test('reads .atmignore without applying .prettierignore rules', () => {
 		const workspaceRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-formatter-'));
 		try {
 			fs.writeFileSync(path.join(workspaceRoot, '.atmignore'), '# generated/\ngenerated/\n');
 			fs.writeFileSync(path.join(workspaceRoot, '.prettierignore'), '# vendor/\nvendor/\n');
-			assert.deepStrictEqual(readIgnorePatterns('.atmignore', workspaceRoot), ['generated/', 'vendor/']);
+			assert.ok(isFileIgnored(path.join(workspaceRoot, 'generated/app.ts'), workspaceRoot, '.atmignore'));
+			assert.strictEqual(isFileIgnored(path.join(workspaceRoot, 'vendor/app.ts'), workspaceRoot, '.atmignore'), false);
 		} finally {
 			fs.rmSync(workspaceRoot, { recursive: true, force: true });
 		}

@@ -2,7 +2,7 @@
   "name": "atm",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "vsce": {
     "dependencies": false
   },
@@ -346,10 +346,6 @@
       {
         "command": "atm.formatter.addToAtmIgnore",
         "title": "ATM Formatter: Add to .atmignore"
-      },
-      {
-        "command": "atm.formatter.addToPrettierIgnore",
-        "title": "ATM Formatter: Add to .prettierignore"
       },
       {
         "command": "atm.goLiveDev.toggle",
@@ -920,38 +916,45 @@
           "description": "Enable Bracket Lynx decorations globally."
         },
         "atm.formatter.enable": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": true,
           "description": "Enable ATM Formatter for TypeScript, TSX, CSS, Astro, and JSON files."
         },
         "atm.formatter.printWidth": {
+          "scope": "language-overridable",
           "type": "number",
           "default": 120,
           "minimum": 1,
           "description": "Maximum line width that Prettier will wrap to."
         },
         "atm.formatter.tabWidth": {
+          "scope": "language-overridable",
           "type": "number",
           "default": 2,
           "minimum": 1,
           "description": "Number of spaces per indentation level."
         },
         "atm.formatter.useTabs": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": false,
           "description": "Indent with tabs instead of spaces."
         },
         "atm.formatter.semi": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": true,
           "description": "Add semicolons to the end of statements."
         },
         "atm.formatter.singleQuote": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": true,
           "description": "Use single quotes instead of double quotes."
         },
         "atm.formatter.trailingComma": {
+          "scope": "language-overridable",
           "type": "string",
           "enum": ["none", "es5", "all"],
           "default": "all",
@@ -963,16 +966,19 @@
           "description": "Controls trailing commas in multi-line constructs."
         },
         "atm.formatter.bracketSpacing": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": true,
           "description": "Add spaces between brackets in object literals."
         },
         "atm.formatter.bracketSameLine": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": false,
           "description": "Put the closing > of multi-line JSX/HTML on the same line as the last line."
         },
         "atm.formatter.arrowParens": {
+          "scope": "language-overridable",
           "type": "string",
           "enum": ["avoid", "always"],
           "default": "always",
@@ -980,6 +986,7 @@
           "description": "Parentheses around single arrow function parameter."
         },
         "atm.formatter.endOfLine": {
+          "scope": "language-overridable",
           "type": "string",
           "enum": ["auto", "lf", "crlf", "cr"],
           "default": "lf",
@@ -987,11 +994,13 @@
           "description": "Line ending style for formatted output."
         },
         "atm.formatter.requireConfig": {
+          "scope": "language-overridable",
           "type": "boolean",
           "default": false,
-          "description": "Only format files when a Prettier config file (.prettierrc or package.json) is found."
+          "description": "Only format files when a Prettier configuration file is found. An .editorconfig file alone does not satisfy this requirement."
         },
         "atm.formatter.ignorePath": {
+          "scope": "language-overridable",
           "type": "string",
           "default": ".atmignore",
           "description": "Path to the ignore file (relative to the workspace root). Lists files that ATM Formatter should skip."
@@ -1203,10 +1212,6 @@
         {
           "command": "atm.formatter.addToAtmIgnore",
           "when": "false"
-        },
-        {
-          "command": "atm.formatter.addToPrettierIgnore",
-          "when": "false"
         }
       ],
       "editor/context": [
@@ -1240,11 +1245,6 @@
         {
           "command": "atm.formatter.addToAtmIgnore",
           "group": "7_modification@90",
-          "when": "resourceScheme == file"
-        },
-        {
-          "command": "atm.formatter.addToPrettierIgnore",
-          "group": "7_modification@91",
           "when": "resourceScheme == file"
         }
       ],
@@ -1432,6 +1432,7 @@
     "file-type": "^21.3.3",
     "get-video-dimensions": "^1.0.0",
     "html-to-image": "^1.11.13",
+    "ignore": "7.0.14",
     "music-metadata": "^11.12.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

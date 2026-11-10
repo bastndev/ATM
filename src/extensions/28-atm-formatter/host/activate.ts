@@ -1,8 +1,9 @@
 import * as vscode from 'vscode';
-import { AtmFormatterProvider, AtmFormatterCodeActionProvider, buildDocumentSelectors, buildRangeSelectors } from './formatterProvider';
+import { AtmFormatterProvider, buildDocumentSelectors, buildRangeSelectors } from './formatterProvider';
+import { AtmFormatterCodeActionProvider } from './codeActionProvider';
 import { FormatterStatusBar } from './statusBar';
 import { registerFormatterCommands } from './commands';
-import { formatterSettingKeys } from '../core/options';
+import { FormatterConfigWatcher } from './configWatcher';
 
 /**
  * ATM Formatter — activation entry point.
@@ -38,8 +39,8 @@ export function activateAtmFormatter(context: vscode.ExtensionContext): void {
 
 	// Register code-action provider for "format on save"
 	context.subscriptions.push(
-		vscode.languages.registerCodeActionsProvider(docSelectors, new AtmFormatterCodeActionProvider(), {
-			providedCodeActionKinds: [vscode.CodeActionKind.SourceFixAll],
+		vscode.languages.registerCodeActionsProvider(docSelectors, new AtmFormatterCodeActionProvider(provider, context.extension.id), {
+			providedCodeActionKinds: [AtmFormatterCodeActionProvider.kind],
 		}),
 	);
 
@@ -55,17 +56,20 @@ export function activateAtmFormatter(context: vscode.ExtensionContext): void {
 	);
 	statusBar.update(vscode.window.activeTextEditor);
 
-	// Re-register providers when config changes (enable toggle, etc.)
-	context.subscriptions.push(
-		vscode.workspace.onDidChangeConfiguration((event) => {
-			if (event.affectsConfiguration(formatterSettingKeys.enable)) {
-				statusBar?.update(vscode.window.activeTextEditor);
-			}
-		}),
-	);
+	context.subscriptions.push(provider.onDidChangeStatus((status) => statusBar?.record(status)));
+	context.subscriptions.push(new FormatterConfigWatcher(() => {
+		statusBar?.invalidate();
+	}));
+	context.subscriptions.push(vscode.workspace.onDidChangeTextDocument((event) => {
+		if (event.document === vscode.window.activeTextEditor?.document) {
+			statusBar?.documentChanged(event.document);
+		}
+	}));
+	context.subscriptions.push(vscode.workspace.onDidCloseTextDocument((document) => statusBar?.forget(document)));
 
 	// Push output channel + status bar as disposables
 	context.subscriptions.push(outputChannel);
+	context.subscriptions.push(provider);
 	context.subscriptions.push(statusBar);
 
 	outputChannel.appendLine('[formatter] ATM Formatter activated — supported languages: TypeScript, TSX, CSS, Astro, JSON');

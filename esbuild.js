@@ -7,7 +7,7 @@ const path = require("path");
 // node_modules — .vscodeignore negations are ignored for it — so copy the full
 // dependency closure into dist/node_modules: Node resolves it first from
 // dist/extension.js. Keep in sync with `external` + package deps.
-const RUNTIME_DEPS = ['@astrojs/compiler', 'sass-formatter', 'suf-log', 's.color'];
+const RUNTIME_DEPS = ['prettier', '@astrojs/compiler', 'sass-formatter', 'suf-log', 's.color'];
 
 function copyRuntimeDeps() {
 	for (const dep of RUNTIME_DEPS) {
@@ -83,6 +83,7 @@ async function main() {
 		// an .astro file is formatted.
 		external: [
 			'vscode',
+			'prettier',
 			'NeteaseCloudMusicApi',
 			'bufferutil',
 			'utf-8-validate',

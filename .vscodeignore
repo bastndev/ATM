@@ -2,7 +2,7 @@
 .vscode-test/**
 out/**
 # Root node_modules never ships (vsce "dependencies": false ignores negations).
-# Externalized astro-formatter deps ship via dist/node_modules — copied by
+# Externalized formatter deps ship via dist/node_modules — copied by
 # copyRuntimeDeps() in esbuild.js.
 node_modules/**
 src/**
