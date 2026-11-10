@@ -14,6 +14,11 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
 <br>
 <!-- --- -->
 
+## [2.1.0] - 2026-11-09
+
+  - Better 01-ai-data-id
+  - Better 28-atm-formatter: now only use ".atmformater"
+
 ---
 ## [2.0.4] - 2026-10-31
 
