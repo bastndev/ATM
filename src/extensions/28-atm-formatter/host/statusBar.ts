@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { inspectDocument, type DocumentStatus, type FormatterState } from './documentConfig';
 
 const icons: Record<FormatterState, string> = {
-	ready: 'check', formatting: 'sync~spin', success: 'check-all', ignored: 'circle-slash',
+	ready: 'check-all', formatting: 'sync~spin', success: 'check-all', ignored: 'circle-slash',
 	disabled: 'circle-slash', 'missing-config': 'warning', error: 'error', unsupported: 'circle-slash',
 };
 
