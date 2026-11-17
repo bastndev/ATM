@@ -17,7 +17,7 @@ export interface CommentTag {
  * ========================================================= */
 export const defaultTags: CommentTag[] = [
   // Full line highlights
-  { text: '!', type: 'line', color: '#4a4f57', fontStyle: 'italic' }, // Alert / Error
+  { text: '!', type: 'line', color: '#575b62', fontStyle: 'italic' }, // Alert / Error
   { text: '?', type: 'line', color: '#3297fbff', fontStyle: 'italic', gutterIcon: 'question' }, // Question
   { text: '*', type: 'line', color: '#464646', fontStyle: 'italic' }, // Highlight
   { text: '^', type: 'line', color: '#FFD602', fontStyle: 'italic' }, // Warning
