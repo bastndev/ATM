@@ -17,17 +17,17 @@ export interface CommentTag {
  * ========================================================= */
 export const defaultTags: CommentTag[] = [
   // Full line highlights
-  { text: '!', type: 'line', color: '#FF3333', fontStyle: 'italic' },     // Alert / Error
-  { text: '?', type: 'line', color: '#3297fbff', fontStyle: 'italic', gutterIcon: 'question' },   // Question
-  { text: '*', type: 'line', color: '#464646', fontStyle: 'italic' },   // Highlight
-  { text: '^', type: 'line', color: '#FFD602', fontStyle: 'italic' },     // Warning
-  { text: '#', type: 'line', color: '#ff7a27', fontStyle: 'italic' },     // Section / Header
-  { text: '$', type: 'line', color: '#4ae4fc', fontStyle: 'italic' },   // Resource / Value
-  { text: '%', type: 'line', color: '#ffffff', fontStyle: 'italic' },     // Ratio / Percent
-  { text: '>', type: 'line', color: '#01b887ff', fontStyle: 'italic' },   // Reference / Tag
-  { text: '&', type: 'line', color: '#FF4ECD', fontStyle: 'italic' },     // Important
-  { text: '~', type: 'line', color: '#aef958ff', fontStyle: 'italic' },   // Deprecated
-  { text: '////', type: 'line', color: '#5A5A5A', strikethrough: true },  // Removed
+  { text: '!', type: 'line', color: '#4a4f57', fontStyle: 'italic' }, // Alert / Error
+  { text: '?', type: 'line', color: '#3297fbff', fontStyle: 'italic', gutterIcon: 'question' }, // Question
+  { text: '*', type: 'line', color: '#464646', fontStyle: 'italic' }, // Highlight
+  { text: '^', type: 'line', color: '#FFD602', fontStyle: 'italic' }, // Warning
+  { text: '#', type: 'line', color: '#ff7a27', fontStyle: 'italic' }, // Section / Header
+  { text: '$', type: 'line', color: '#4ae4fc', fontStyle: 'italic' }, // Resource / Value
+  { text: '%', type: 'line', color: '#ffffff', fontStyle: 'italic' }, // Ratio / Percent
+  { text: '>', type: 'line', color: '#01b887ff', fontStyle: 'italic' }, // Reference / Tag
+  { text: '&', type: 'line', color: '#FF4ECD', fontStyle: 'italic' }, // Important
+  { text: '~', type: 'line', color: '#aef958ff', fontStyle: 'italic' }, // Deprecated
+  { text: '////', type: 'line', color: '#5A5A5A', strikethrough: true }, // Removed
 
   // Keyword badges
   {
