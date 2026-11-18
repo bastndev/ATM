@@ -28,6 +28,7 @@ export function getLanguageConfig(
     case 'ruby':
     case 'shellscript':
     case 'yaml':
+    case 'toml':
     case 'makefile':
     case 'dockerfile':
     case 'perl':

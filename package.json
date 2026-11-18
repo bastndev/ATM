@@ -998,6 +998,24 @@
         "embeddedLanguages": {
           "meta.embedded.block.mdx": "mdx"
         }
+      },
+      {
+        "language": "toml",
+        "scopeName": "source.toml",
+        "path": "./src/extensions/31-toml/syntaxes/toml.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.toml.codeblock",
+        "path": "./src/extensions/31-toml/syntaxes/toml.markdown.tmLanguage.json",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": {
+          "meta.embedded.block.toml": "toml"
+        }
+      },
+      {
+        "scopeName": "markdown.toml.frontmatter.codeblock",
+        "path": "./src/extensions/31-toml/syntaxes/toml.frontmatter.tmLanguage.json",
+        "injectTo": ["text.html.markdown"]
       }
     ],
     "keybindings": [
@@ -1119,6 +1137,13 @@
         "aliases": ["MDX"],
         "extensions": [".mdx"],
         "configuration": "./src/extensions/13-markdown-mdx/syntaxes/language-configuration.json"
+      },
+      {
+        "id": "toml",
+        "aliases": ["TOML", "toml"],
+        "extensions": [".toml"],
+        "filenames": ["Cargo.lock", "uv.lock"],
+        "configuration": "./src/extensions/31-toml/syntaxes/language-configuration.json"
       }
     ],
     "markdown.markdownItPlugins": true,
