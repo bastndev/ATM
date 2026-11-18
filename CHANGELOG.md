@@ -16,6 +16,19 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
 
 ## [2.2.0] - 2026-11-18
 
+### Added
+
+- **TOML (`31-toml`) — native TOML support, no extra extension needed**:
+  - **Syntax colors** for `.toml`, `Cargo.lock` and `uv.lock` (comments, `[tables]`, `[[array tables]]`, keys, strings, numbers, booleans, dates). Also colors ```` ```toml ```` blocks and `+++` front matter in Markdown and MDX.
+  - **Editing basics**: `Ctrl+/` toggles `#` comments; quotes and brackets close automatically.
+  - **Folding**: fold whole `[table]` sections (nested tables fold inside their parent), multi-line arrays, inline tables, `"""` strings and comment blocks.
+  - **Outline, breadcrumbs, sticky scroll and `Ctrl+Shift+O`** show the file's tables and keys in document order.
+  - **Syntax errors while you type** (TOML 1.1), also shown inline by Error Lens. Lock files are never checked. Setting: `atm.toml.validation.enabled`.
+  - **Commands**: `ATM TOML: Copy as JSON` and `Paste JSON as TOML` in TOML files; `Copy as TOML` and `Paste TOML as JSON` in JSON files.
+- **Comments Code (`06-comments-code`)**: comment tags now work in TOML files.
+
+---
+
 ## [2.1.0] - 2026-11-09
 
   - Better 01-ai-data-id
