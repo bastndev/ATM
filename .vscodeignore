@@ -15,6 +15,7 @@ src/**
 !src/extensions/terminal-sound/sound/
 !src/extensions/terminal-sound/sound/**
 !src/**/*.tmLanguage
+!src/extensions/31-toml/syntaxes/LICENSE
 .gitignore
 .yarnrc
 .prettierrc

@@ -91,6 +91,22 @@
   "contributes": {
     "commands": [
       {
+        "command": "atm.toml.copyAsJson",
+        "title": "ATM TOML: Copy as JSON"
+      },
+      {
+        "command": "atm.toml.pasteAsToml",
+        "title": "ATM TOML: Paste JSON as TOML"
+      },
+      {
+        "command": "atm.toml.copyAsToml",
+        "title": "ATM TOML: Copy as TOML"
+      },
+      {
+        "command": "atm.toml.pasteAsJson",
+        "title": "ATM TOML: Paste TOML as JSON"
+      },
+      {
         "command": "atm.beforeAfter.showBefore",
         "title": "ATM: Preview Selection Before Changes",
         "icon": "$(diff)"
@@ -939,6 +955,12 @@
           "type": "string",
           "default": ".atmignore",
           "description": "Path to the ignore file (relative to the workspace root). Lists files that ATM Formatter should skip."
+        },
+        "atm.toml.validation.enabled": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "description": "Show TOML syntax errors (invalid values, unclosed strings, duplicate keys) while you type. Lock files such as Cargo.lock and uv.lock are never checked."
         }
       }
     },
@@ -998,6 +1020,24 @@
         "embeddedLanguages": {
           "meta.embedded.block.mdx": "mdx"
         }
+      },
+      {
+        "language": "toml",
+        "scopeName": "source.toml",
+        "path": "./src/extensions/31-toml/syntaxes/toml.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.toml.codeblock",
+        "path": "./src/extensions/31-toml/syntaxes/toml.markdown.tmLanguage.json",
+        "injectTo": ["text.html.markdown"],
+        "embeddedLanguages": {
+          "meta.embedded.block.toml": "toml"
+        }
+      },
+      {
+        "scopeName": "markdown.toml.frontmatter.codeblock",
+        "path": "./src/extensions/31-toml/syntaxes/toml.frontmatter.tmLanguage.json",
+        "injectTo": ["text.html.markdown"]
       }
     ],
     "keybindings": [
@@ -1119,6 +1159,13 @@
         "aliases": ["MDX"],
         "extensions": [".mdx"],
         "configuration": "./src/extensions/13-markdown-mdx/syntaxes/language-configuration.json"
+      },
+      {
+        "id": "toml",
+        "aliases": ["TOML", "toml"],
+        "extensions": [".toml"],
+        "filenames": ["Cargo.lock", "uv.lock"],
+        "configuration": "./src/extensions/31-toml/syntaxes/language-configuration.json"
       }
     ],
     "markdown.markdownItPlugins": true,
@@ -1133,6 +1180,22 @@
         {
           "command": "atm.formatter.addToAtmIgnore",
           "when": "false"
+        },
+        {
+          "command": "atm.toml.copyAsJson",
+          "when": "editorLangId == toml"
+        },
+        {
+          "command": "atm.toml.pasteAsToml",
+          "when": "editorLangId == toml && !editorReadonly"
+        },
+        {
+          "command": "atm.toml.copyAsToml",
+          "when": "editorLangId == json || editorLangId == jsonc"
+        },
+        {
+          "command": "atm.toml.pasteAsJson",
+          "when": "(editorLangId == json || editorLangId == jsonc) && !editorReadonly"
         }
       ],
       "editor/context": [
@@ -1359,6 +1422,7 @@
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "semver": "^7.7.4",
+    "smol-toml": "^1.9.1",
     "svgo": "^4.0.1",
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
