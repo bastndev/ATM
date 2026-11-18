@@ -1737,7 +1737,8 @@
     ],
     "configurationDefaults": {
       "[rust]": {
-        "editor.formatOnSave": true
+        "editor.formatOnSave": true,
+        "editor.inlayHints.enabled": "on"
       }
     },
     "problemMatchers": [

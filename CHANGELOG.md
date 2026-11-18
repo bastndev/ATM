@@ -27,7 +27,7 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
   - **Commands**: `ATM TOML: Copy as JSON` and `Paste JSON as TOML` in TOML files; `Copy as TOML` and `Paste TOML as JSON` in JSON files.
 - **Comments Code (`06-comments-code`)**: comment tags now work in TOML files.
 - **Rust (`32-rust`) — Rust support without the rust-analyzer extension**:
-  - **Type hints** after variables (`: f64`, `: bool`, `: i32`, `: Vec<&str>`…) and **parameter names** in calls (`width:`, `height:`). Settings: `atm.rust.inlayHints.typeHints` and `atm.rust.inlayHints.parameterHints`.
+  - **Type hints** after variables (`: f64`, `: bool`, `: i32`, `: Vec<&str>`…) and **parameter names** in calls (`width:`, `height:`). Settings: `atm.rust.inlayHints.typeHints` and `atm.rust.inlayHints.parameterHints`. Hints are shown in Rust files even in editors that hide them by default, such as Antigravity.
   - **Underline on `mut` variables**, where they are declared and wherever they are used.
   - **Autocomplete, info on hover, `Ctrl+click` to the definition, 💡 quick fixes and rename everywhere.**
   - **Format on save with rustfmt**, using the crate's edition from `Cargo.toml`.

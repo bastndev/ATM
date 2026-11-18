@@ -124,10 +124,13 @@ class RustController implements vscode.Disposable {
 		await this.server.start(serverPath, cwd);
 	}
 
-	/** Basic features run only while rust-analyzer does not, so nothing shows up twice. */
+	/**
+	 * Basic features run until rust-analyzer has loaded the project, so hints
+	 * never disappear while it loads and nothing shows up twice afterwards.
+	 */
 	private applyMode(): void {
-		const mode: Mode = !this.isActive() ? 'off' : this.server.isRunning ? 'full' : 'basic';
-		void vscode.commands.executeCommand('setContext', 'atm.rust.serverRunning', mode === 'full');
+		const mode: Mode = !this.isActive() ? 'off' : this.server.isReady ? 'full' : 'basic';
+		void vscode.commands.executeCommand('setContext', 'atm.rust.serverRunning', this.server.isRunning);
 		if (mode === 'off') {
 			this.taskProvider?.dispose();
 			this.taskProvider = undefined;

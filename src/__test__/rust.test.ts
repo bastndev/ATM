@@ -292,6 +292,8 @@ suite('Rust Test Suite', () => {
 			const rustScopes = contributes.semanticTokenScopes.find((entry: { language: string }) => entry.language === 'rust');
 			assert.deepStrictEqual(rustScopes.scopes['*.mutable'], ['markup.underline']);
 			assert.strictEqual(contributes.configurationDefaults['[rust]']['editor.formatOnSave'], true);
+			// Antigravity hides inlay hints by default (offUnlessPressed); Rust files show them.
+			assert.strictEqual(contributes.configurationDefaults['[rust]']['editor.inlayHints.enabled'], 'on');
 		});
 	});
 

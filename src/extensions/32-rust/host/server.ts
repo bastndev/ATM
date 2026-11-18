@@ -3,8 +3,10 @@ import {
 	ClientCapabilities,
 	DidChangeConfigurationNotification,
 	FeatureState,
+	InlayHintRequest,
 	LanguageClient,
 	LanguageClientOptions,
+	NotificationType,
 	RequestType,
 	RevealOutputChannelOn,
 	ServerOptions,
@@ -17,15 +19,23 @@ import { renameServerCommand, SERVER_COMMANDS } from '../core/commandMap';
 /** rust-analyzer's own request for the docs.rs / doc.rust-lang.org link of the item under the cursor. */
 const EXTERNAL_DOCS = new RequestType<TextDocumentPositionParams, string | { web?: string } | null, void>('experimental/externalDocs');
 
+/** rust-analyzer reports `quiescent: true` once it has finished loading the project. */
+const SERVER_STATUS = new NotificationType<{ quiescent?: boolean }>('experimental/serverStatus');
+
+/** For servers that never report their status: treat them as ready after this long. */
+const READY_FALLBACK_MS = 120_000;
+
 /**
- * Tells rust-analyzer which of its commands the client can run, which turns
- * on the ▶ Run / Run Test buttons and parameter hints after completions.
+ * Tells rust-analyzer which of its commands the client can run (turning on
+ * the ▶ Run / Run Test buttons and parameter hints after completions), and
+ * asks it to report when it has finished loading.
  */
 class ServerCommandsFeature implements StaticFeature {
 	fillClientCapabilities(capabilities: ClientCapabilities): void {
 		capabilities.experimental = {
 			...(capabilities.experimental as object | undefined),
 			commands: { commands: Object.keys(SERVER_COMMANDS) },
+			serverStatusNotification: true,
 		};
 	}
 	initialize(): void {}
@@ -42,7 +52,10 @@ class ServerCommandsFeature implements StaticFeature {
  */
 export class RustServer implements vscode.Disposable {
 	private client: LanguageClient | undefined;
+	private loaded = false;
+	private readyFallback: ReturnType<typeof setTimeout> | undefined;
 	private readonly runningEmitter = new vscode.EventEmitter<boolean>();
+	/** Fires when the server starts or stops running, and when it finishes loading. */
 	readonly onDidChangeRunning = this.runningEmitter.event;
 
 	constructor(
@@ -52,6 +65,33 @@ export class RustServer implements vscode.Disposable {
 
 	get isRunning(): boolean {
 		return this.client?.state === State.Running;
+	}
+
+	/** Running and done loading the project, so its hints and colors are complete. */
+	get isReady(): boolean {
+		return this.isRunning && this.loaded;
+	}
+
+	private markLoaded(): void {
+		if (this.readyFallback) {
+			clearTimeout(this.readyFallback);
+			this.readyFallback = undefined;
+		}
+		if (!this.loaded) {
+			this.loaded = true;
+			this.runningEmitter.fire(true);
+			this.refreshInlayHints();
+		}
+	}
+
+	/** Asks VS Code to fetch rust-analyzer's hints again for every open Rust file. */
+	private refreshInlayHints(): void {
+		const feature = this.client?.getFeature(InlayHintRequest.method);
+		for (const document of vscode.workspace.textDocuments) {
+			if (document.languageId === 'rust') {
+				feature?.getProvider(document)?.onDidChangeInlayHints.fire();
+			}
+		}
 	}
 
 	get languageClient(): LanguageClient | undefined {
@@ -82,6 +122,8 @@ export class RustServer implements vscode.Disposable {
 						return params.items.map((item, index) => (item.section === 'rust-analyzer' ? this.config() : result[index]));
 					},
 				},
+				// ATM's simple hints cover the loading time; rust-analyzer's take over once it is done.
+				provideInlayHints: (document, viewPort, token, next) => (this.loaded ? next(document, viewPort, token) : []),
 				provideCodeLenses: async (document, token, next) => {
 					const lenses = await next(document, token);
 					lenses?.forEach((lens) => renameServerCommand(lens.command));
@@ -125,10 +167,22 @@ export class RustServer implements vscode.Disposable {
 		const client = new LanguageClient('atmRust', 'ATM Rust', serverOptions, clientOptions);
 		client.registerFeature(new ServerCommandsFeature());
 		client.onDidChangeState((event) => {
-			if (this.client === client) {
-				this.runningEmitter.fire(event.newState === State.Running);
+			if (this.client !== client) {
+				return;
+			}
+			if (event.newState === State.Running) {
+				this.readyFallback = setTimeout(() => this.markLoaded(), READY_FALLBACK_MS);
+			} else {
+				this.loaded = false;
+			}
+			this.runningEmitter.fire(event.newState === State.Running);
+		});
+		client.onNotification(SERVER_STATUS, (status) => {
+			if (this.client === client && status.quiescent) {
+				this.markLoaded();
 			}
 		});
+		this.loaded = false;
 		this.client = client;
 
 		try {
@@ -147,6 +201,11 @@ export class RustServer implements vscode.Disposable {
 	async stop(): Promise<void> {
 		const client = this.client;
 		this.client = undefined;
+		this.loaded = false;
+		if (this.readyFallback) {
+			clearTimeout(this.readyFallback);
+			this.readyFallback = undefined;
+		}
 		if (!client) {
 			return;
 		}
