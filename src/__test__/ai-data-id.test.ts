@@ -14,8 +14,31 @@ import {
 	generateModernBar,
 	computeEngineeredTokens,
 } from '../extensions/01-ai-data-id/ui/tooltip-builder';
+import { isAntigravityHost } from '../extensions/01-ai-data-id';
 
 suite('AI Data Extension – Unit Tests', () => {
+
+	// ── Host gating ──────────────────────────────────────────────────
+
+	suite('isAntigravityHost', () => {
+		test('accepts Antigravity hosts', () => {
+			assert.strictEqual(isAntigravityHost('Antigravity', 'antigravity'), true);
+			assert.strictEqual(isAntigravityHost('Antigravity IDE', 'antigravity'), true);
+			assert.strictEqual(isAntigravityHost('Something', 'antigravity'), true);
+			assert.strictEqual(isAntigravityHost('agy', 'agy'), true);
+		});
+
+		test('rejects other VS Code-based editors', () => {
+			assert.strictEqual(isAntigravityHost('Visual Studio Code', 'vscode'), false);
+			assert.strictEqual(isAntigravityHost('Visual Studio Code - Insiders', 'vscode-insiders'), false);
+			assert.strictEqual(isAntigravityHost('Cursor', 'cursor'), false);
+			assert.strictEqual(isAntigravityHost('Kiro', 'kiro'), false);
+			assert.strictEqual(isAntigravityHost('Windsurf', 'windsurf'), false);
+			assert.strictEqual(isAntigravityHost('VSCodium', 'vscodium'), false);
+			assert.strictEqual(isAntigravityHost('Trae', 'trae'), false);
+			assert.strictEqual(isAntigravityHost('', ''), false);
+		});
+	});
 
 	// ── QuotaManager.formatTime ──────────────────────────────────────
 

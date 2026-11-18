@@ -26,9 +26,10 @@ Esta actualización moderniza la arquitectura del módulo para convivir de forma
    - Incorporación de modelos de última generación: **Gemini 4 Argon (High/Low)**, **Gemini 3.8 Pro**, **Gemini 3.8 Flash**, **Gemini 3.5**, **Claude 3.7 Sonnet**, **Claude 4.6 Sonnet/Opus** y **GPT-OSS**.
    - Cálculo ponderado por *baskets* (`PRO`, `FLASH`, `THIRD_PARTY`) adaptado a planes `FREE`, `PRO` y `ULTRA`.
 
-4. **Coexistencia Multi-Editor (`index.ts`)**:
-   - Se activa automáticamente dentro de **Antigravity IDE**.
-   - En editores hermanos (VS Code, Cursor, Windsurf), detecta silenciosamente en segundo plano si **Antigravity 2.0** o `agy` están ejecutándose en la máquina y habilita la barra de estado de forma dinámica sin mostrar errores intrusivos cuando Antigravity está cerrado.
+4. **Activación exclusiva en Antigravity (`index.ts`)**:
+   - Solo se activa dentro de **Antigravity IDE** (1.x y 2.0 / `agy`), detectado por `vscode.env.appName` / `vscode.env.uriScheme`.
+   - En cualquier otro editor (VS Code, Cursor, Kiro, Windsurf, …) el módulo retorna de inmediato: no crea la barra de estado ni busca procesos de Antigravity en segundo plano, aunque Antigravity esté abierto en paralelo.
+   - Las variables de entorno (`ANTIGRAVITY_CLI_PATH`, `AGY_ACCOUNT`, …) se ignoran a propósito, porque se heredan en editores lanzados desde una terminal que las tenga definidas.
 
 ---
 
