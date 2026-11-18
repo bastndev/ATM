@@ -14,6 +14,8 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
 <br>
 <!-- --- -->
 
+## [2.2.0] - 2026-11-18
+
 ## [2.1.0] - 2026-11-09
 
   - Better 01-ai-data-id
