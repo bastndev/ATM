@@ -83,13 +83,30 @@
     "onLanguage:vue",
     "onLanguage:astro",
     "onLanguage:svelte",
-    "onLanguage:json"
+    "onLanguage:json",
+    "onLanguage:toml"
   ],
   "packageManager": "bun@1.3.4",
   "l10n": "./l10n",
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "atm.toml.copyAsJson",
+        "title": "ATM TOML: Copy as JSON"
+      },
+      {
+        "command": "atm.toml.pasteAsToml",
+        "title": "ATM TOML: Paste JSON as TOML"
+      },
+      {
+        "command": "atm.toml.copyAsToml",
+        "title": "ATM TOML: Copy as TOML"
+      },
+      {
+        "command": "atm.toml.pasteAsJson",
+        "title": "ATM TOML: Paste TOML as JSON"
+      },
       {
         "command": "atm.beforeAfter.showBefore",
         "title": "ATM: Preview Selection Before Changes",
@@ -939,6 +956,12 @@
           "type": "string",
           "default": ".atmignore",
           "description": "Path to the ignore file (relative to the workspace root). Lists files that ATM Formatter should skip."
+        },
+        "atm.toml.validation.enabled": {
+          "scope": "resource",
+          "type": "boolean",
+          "default": true,
+          "description": "Show TOML syntax errors (invalid values, unclosed strings, duplicate keys) while you type. Lock files such as Cargo.lock and uv.lock are never checked."
         }
       }
     },
@@ -1158,6 +1181,22 @@
         {
           "command": "atm.formatter.addToAtmIgnore",
           "when": "false"
+        },
+        {
+          "command": "atm.toml.copyAsJson",
+          "when": "editorLangId == toml"
+        },
+        {
+          "command": "atm.toml.pasteAsToml",
+          "when": "editorLangId == toml && !editorReadonly"
+        },
+        {
+          "command": "atm.toml.copyAsToml",
+          "when": "editorLangId == json || editorLangId == jsonc"
+        },
+        {
+          "command": "atm.toml.pasteAsJson",
+          "when": "(editorLangId == json || editorLangId == jsonc) && !editorReadonly"
         }
       ],
       "editor/context": [
@@ -1384,6 +1423,7 @@
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.1",
     "semver": "^7.7.4",
+    "smol-toml": "^1.9.1",
     "svgo": "^4.0.1",
     "vscode-languageclient": "^9.0.1",
     "vscode-languageserver": "^9.0.1",
