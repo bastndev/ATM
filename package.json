@@ -107,6 +107,18 @@
         "title": "ATM TOML: Paste TOML as JSON"
       },
       {
+        "command": "atm.rust.openDocs",
+        "title": "ATM Rust: Open Docs"
+      },
+      {
+        "command": "atm.rust.restartServer",
+        "title": "ATM Rust: Restart rust-analyzer"
+      },
+      {
+        "command": "atm.rust.installServer",
+        "title": "ATM Rust: Install rust-analyzer"
+      },
+      {
         "command": "atm.beforeAfter.showBefore",
         "title": "ATM: Preview Selection Before Changes",
         "icon": "$(diff)"
@@ -961,6 +973,34 @@
           "type": "boolean",
           "default": true,
           "description": "Show TOML syntax errors (invalid values, unclosed strings, duplicate keys) while you type. Lock files such as Cargo.lock and uv.lock are never checked."
+        },
+        "atm.rust.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Turn on ATM's Rust support: type hints, the underline on mut variables, rustfmt, Cargo tasks and, with the rust-analyzer program, autocomplete, hover, go to definition, quick fixes, rename and Run buttons. It stays off while the rust-analyzer extension is installed."
+        },
+        "atm.rust.serverPath": {
+          "scope": "machine",
+          "type": "string",
+          "default": "",
+          "description": "Path to the rust-analyzer program. Leave empty to use the one installed with Rust (rustup component add rust-analyzer)."
+        },
+        "atm.rust.checkOnSave.command": {
+          "type": "string",
+          "enum": ["check", "clippy"],
+          "enumDescriptions": ["Run cargo check on save.", "Run cargo clippy on save, which adds lint suggestions."],
+          "default": "check",
+          "description": "Command rust-analyzer runs on save to find errors and warnings."
+        },
+        "atm.rust.inlayHints.typeHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show variable types after their names, such as : f64 or : bool."
+        },
+        "atm.rust.inlayHints.parameterHints": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show parameter names before arguments in function calls, such as width: and height:. Needs the rust-analyzer program."
         }
       }
     },
@@ -1196,9 +1236,26 @@
         {
           "command": "atm.toml.pasteAsJson",
           "when": "(editorLangId == json || editorLangId == jsonc) && !editorReadonly"
+        },
+        {
+          "command": "atm.rust.openDocs",
+          "when": "editorLangId == rust && atm.rust.serverRunning"
+        },
+        {
+          "command": "atm.rust.restartServer",
+          "when": "editorLangId == rust"
+        },
+        {
+          "command": "atm.rust.installServer",
+          "when": "atm.rust.serverMissing"
         }
       ],
       "editor/context": [
+        {
+          "command": "atm.rust.openDocs",
+          "group": "navigation@90",
+          "when": "editorLangId == rust && atm.rust.serverRunning"
+        },
         {
           "command": "atm.beforeAfter.showBefore",
           "group": "1_modification",
@@ -1293,7 +1350,414 @@
         }
       ]
     },
+    "problemPatterns": [
+      {
+        "name": "atm-rustc",
+        "patterns": [
+          {
+            "regexp": "^(warning|warn|error)(?:\\[(.*?)\\])?: (.*)$",
+            "severity": 1,
+            "code": 2,
+            "message": 3
+          },
+          {
+            "regexp": "^[\\s->=─╭├▸]*(.*?):([1-9]\\d*):([1-9]\\d*)\\s*$",
+            "file": 1,
+            "line": 2,
+            "column": 3
+          }
+        ]
+      },
+      {
+        "name": "atm-rust-panic",
+        "patterns": [
+          {
+            "regexp": "^thread '.*' panicked at (.*):(\\d*):(\\d*):$",
+            "file": 1,
+            "line": 2,
+            "column": 3
+          },
+          {
+            "regexp": "(.*)",
+            "message": 1
+          }
+        ]
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "atm-cargo",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "Cargo command, such as build, check, test or run."
+          },
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Extra arguments for the cargo command."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Folder with the Cargo.toml, relative to the workspace folder."
+          },
+          "env": {
+            "type": "object",
+            "patternProperties": {
+              ".+": {
+                "type": "string"
+              }
+            },
+            "description": "Extra environment variables."
+          }
+        }
+      }
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "angle",
+        "description": "Style for < or >",
+        "superType": "punctuation"
+      },
+      {
+        "id": "arithmetic",
+        "description": "Style for arithmetic operators",
+        "superType": "operator"
+      },
+      {
+        "id": "attribute",
+        "description": "Style for attributes"
+      },
+      {
+        "id": "attributeBracket",
+        "description": "Style for attribute invocation brackets, that is the `#[` and `]` tokens",
+        "superType": "punctuation"
+      },
+      {
+        "id": "bitwise",
+        "description": "Style for bitwise operators",
+        "superType": "operator"
+      },
+      {
+        "id": "boolean",
+        "description": "Style for boolean literals",
+        "superType": "keyword"
+      },
+      {
+        "id": "brace",
+        "description": "Style for { or }",
+        "superType": "punctuation"
+      },
+      {
+        "id": "bracket",
+        "description": "Style for [ or ]",
+        "superType": "punctuation"
+      },
+      {
+        "id": "builtinAttribute",
+        "description": "Style for builtin attributes",
+        "superType": "attribute"
+      },
+      {
+        "id": "builtinType",
+        "description": "Style for builtin types",
+        "superType": "type"
+      },
+      {
+        "id": "character",
+        "description": "Style for character literals",
+        "superType": "string"
+      },
+      {
+        "id": "colon",
+        "description": "Style for :",
+        "superType": "punctuation"
+      },
+      {
+        "id": "comma",
+        "description": "Style for ,",
+        "superType": "punctuation"
+      },
+      {
+        "id": "comparison",
+        "description": "Style for comparison operators",
+        "superType": "operator"
+      },
+      {
+        "id": "constParameter",
+        "description": "Style for const generics"
+      },
+      {
+        "id": "const",
+        "description": "Style for consts",
+        "superType": "variable"
+      },
+      {
+        "id": "derive",
+        "description": "Style for derives",
+        "superType": "attribute"
+      },
+      {
+        "id": "deriveHelper",
+        "description": "Style for derive helpers",
+        "superType": "attribute"
+      },
+      {
+        "id": "dot",
+        "description": "Style for .",
+        "superType": "punctuation"
+      },
+      {
+        "id": "escapeSequence",
+        "description": "Style for char or byte escapes in strings"
+      },
+      {
+        "id": "formatSpecifier",
+        "description": "Style for {} placeholders in format strings"
+      },
+      {
+        "id": "invalidEscapeSequence",
+        "description": "Style for invalid char or byte escapes in strings"
+      },
+      {
+        "id": "label",
+        "description": "Style for labels"
+      },
+      {
+        "id": "lifetime",
+        "description": "Style for lifetimes"
+      },
+      {
+        "id": "logical",
+        "description": "Style for logic operators",
+        "superType": "operator"
+      },
+      {
+        "id": "macroBang",
+        "description": "Style for the ! token of macro calls",
+        "superType": "punctuation"
+      },
+      {
+        "id": "parenthesis",
+        "description": "Style for ( or )",
+        "superType": "punctuation"
+      },
+      {
+        "id": "procMacro",
+        "description": "Style for proc macro code",
+        "superType": "macro"
+      },
+      {
+        "id": "punctuation",
+        "description": "Style for generic punctuation"
+      },
+      {
+        "id": "operator",
+        "description": "Style for operators",
+        "superType": "punctuation"
+      },
+      {
+        "id": "selfKeyword",
+        "description": "Style for the self keyword",
+        "superType": "keyword"
+      },
+      {
+        "id": "selfTypeKeyword",
+        "description": "Style for the self type keyword",
+        "superType": "keyword"
+      },
+      {
+        "id": "semicolon",
+        "description": "Style for ;",
+        "superType": "punctuation"
+      },
+      {
+        "id": "static",
+        "description": "Style for statics",
+        "superType": "variable"
+      },
+      {
+        "id": "toolModule",
+        "description": "Style for tool module attributes",
+        "superType": "decorator"
+      },
+      {
+        "id": "typeAlias",
+        "description": "Style for type aliases",
+        "superType": "type"
+      },
+      {
+        "id": "union",
+        "description": "Style for C-style untagged unions",
+        "superType": "type"
+      },
+      {
+        "id": "unresolvedReference",
+        "description": "Style for names which can not be resolved due to compilation errors"
+      }
+    ],
+    "semanticTokenModifiers": [
+      {
+        "id": "async",
+        "description": "Style for async functions and the `async` and `await` keywords"
+      },
+      {
+        "id": "attribute",
+        "description": "Style for elements within attributes"
+      },
+      {
+        "id": "callable",
+        "description": "Style for locals whose types implements one of the `Fn*` traits"
+      },
+      {
+        "id": "constant",
+        "description": "Style for compile-time constants"
+      },
+      {
+        "id": "consuming",
+        "description": "Style for locals that are being consumed when use in a function call"
+      },
+      {
+        "id": "controlFlow",
+        "description": "Style for control-flow related tokens, this includes the `?` operator"
+      },
+      {
+        "id": "crateRoot",
+        "description": "Style for names resolving to a crate root"
+      },
+      {
+        "id": "injected",
+        "description": "Style for doc-string injected highlighting like rust source blocks in documentation"
+      },
+      {
+        "id": "intraDocLink",
+        "description": "Style for intra doc links in doc-strings"
+      },
+      {
+        "id": "library",
+        "description": "Style for items that are defined outside of the current crate"
+      },
+      {
+        "id": "macro",
+        "description": "Style for tokens inside of macro calls"
+      },
+      {
+        "id": "mutable",
+        "description": "Style for mutable locals and statics as well as functions taking `&mut self`"
+      },
+      {
+        "id": "procMacro",
+        "description": "Style for tokens inside of proc-macro calls"
+      },
+      {
+        "id": "public",
+        "description": "Style for items that are from the current crate and are `pub`"
+      },
+      {
+        "id": "reference",
+        "description": "Style for locals behind a reference and functions taking `self` by reference"
+      },
+      {
+        "id": "trait",
+        "description": "Style for associated trait items"
+      },
+      {
+        "id": "unsafe",
+        "description": "Style for unsafe operations, like unsafe function calls, as well as the `unsafe` token"
+      }
+    ],
+    "semanticTokenScopes": [
+      {
+        "language": "rust",
+        "scopes": {
+          "attribute": [
+            "meta.attribute.rust"
+          ],
+          "boolean": [
+            "constant.language.boolean.rust"
+          ],
+          "builtinType": [
+            "support.type.primitive.rust"
+          ],
+          "constParameter": [
+            "constant.other.caps.rust"
+          ],
+          "enum": [
+            "entity.name.type.enum.rust"
+          ],
+          "formatSpecifier": [
+            "punctuation.section.embedded.rust"
+          ],
+          "function": [
+            "entity.name.function.rust"
+          ],
+          "interface": [
+            "entity.name.type.trait.rust"
+          ],
+          "keyword": [
+            "keyword.other.rust"
+          ],
+          "keyword.controlFlow": [
+            "keyword.control.rust"
+          ],
+          "lifetime": [
+            "storage.modifier.lifetime.rust"
+          ],
+          "macroBang": [
+            "entity.name.function.macro.rust"
+          ],
+          "method": [
+            "entity.name.function.rust"
+          ],
+          "struct": [
+            "entity.name.type.struct.rust"
+          ],
+          "typeAlias": [
+            "entity.name.type.declaration.rust"
+          ],
+          "union": [
+            "entity.name.type.union.rust"
+          ],
+          "variable": [
+            "variable.other.rust"
+          ],
+          "variable.constant": [
+            "variable.other.constant.rust"
+          ],
+          "*.mutable": [
+            "markup.underline"
+          ]
+        }
+      }
+    ],
+    "configurationDefaults": {
+      "[rust]": {
+        "editor.formatOnSave": true,
+        "editor.inlayHints.enabled": "on"
+      }
+    },
     "problemMatchers": [
+      {
+        "name": "atm-rustc",
+        "label": "Rust compiler (ATM)",
+        "owner": "rustc",
+        "source": "rustc",
+        "fileLocation": ["autoDetect", "${workspaceFolder}"],
+        "pattern": "$atm-rustc"
+      },
+      {
+        "name": "atm-rust-panic",
+        "label": "Rust panic (ATM)",
+        "owner": "rust-panic",
+        "source": "panic",
+        "fileLocation": ["autoDetect", "${workspaceFolder}"],
+        "pattern": "$atm-rust-panic"
+      },
       {
         "name": "esbuild",
         "label": "esbuild problem matcher",

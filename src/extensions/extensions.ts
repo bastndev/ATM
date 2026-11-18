@@ -30,6 +30,7 @@ import { activateAtmFormatter } from './28-atm-formatter';
 import { activateCommitEmoji } from './29-commit-emoji';
 import { activateBeforeAfter } from './30-before-after';
 import { activateToml } from './31-toml';
+import { activateRust } from './32-rust';
 import { activateIra, activateGitCommands, activateAtmTranslate, activateCompareCode, activateBrowser } from './21-23-25';
 
 /**
@@ -101,4 +102,5 @@ export function activateExtensions(context: vscode.ExtensionContext): void {
   safeActivate('commit-emoji', () => activateCommitEmoji(context));
   safeActivate('before-after', () => activateBeforeAfter(context));
   safeActivate('toml', () => activateToml(context));
+  safeActivate('rust', () => activateRust(context));
 }
