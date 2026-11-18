@@ -1,7 +1,8 @@
 /**
  * @module ai-data-id
  * Entry point for the Antigravity AI Data status bar monitor.
- * Supports both standalone Antigravity IDE and parallel Antigravity 2.0 / `agy` CLI setups.
+ * Only active inside the Antigravity IDE (1.x and 2.0 / `agy`); never in
+ * VS Code, Cursor, Kiro, Windsurf or other forks.
  *
  * @updatedBy Enrique H. Hernandez (@EnriqueHH) <poke.henri@gmail.com>
  */
@@ -78,38 +79,35 @@ function resolvePollingTier(snapshot: QuotaSnapshot, globalPct: number): Polling
 }
 
 /**
- * Checks whether the current host IDE or environment is explicitly Antigravity.
+ * Checks whether the host IDE itself is Antigravity.
+ *
+ * Only the host identity (`appName` / `uriScheme`) is trusted. Environment
+ * variables (e.g. `ANTIGRAVITY_CLI_PATH`) are intentionally ignored because they
+ * leak into other editors launched from a shell or terminal that has them set.
  */
-function detectAntigravityHost(): boolean {
-	const appName = (vscode.env.appName || '').toLowerCase();
-	const uriScheme = (vscode.env.uriScheme || '').toLowerCase();
-	if (
-		appName.includes('antigravity')
-		|| appName.includes('agy')
-		|| uriScheme.includes('antigravity')
-		|| uriScheme.includes('agy')
-	) {
-		return true;
-	}
-	return Boolean(
-		process.env.ANTIGRAVITY_CLI_PATH
-		|| process.env.ANTIGRAVITY_AGENT
-		|| process.env.AGY_ACCOUNT,
-	);
+export function isAntigravityHost(appName: string, uriScheme: string): boolean {
+	const name = (appName || '').toLowerCase();
+	const scheme = (uriScheme || '').toLowerCase();
+	return name.includes('antigravity')
+		|| scheme.includes('antigravity')
+		|| /\bagy\b/.test(name)
+		|| scheme === 'agy';
 }
 
 /**
  * Activates the AI Data status bar extension.
- * Runs immediately when the host IDE is Antigravity, and also auto-discovers
- * Antigravity 2.0 / `agy` background processes when running in sibling editors.
+ * Only runs when the host IDE is Antigravity — in every other editor
+ * (VS Code, Cursor, Kiro, …) it returns immediately without creating any UI
+ * or probing for local language-server processes.
  *
  * @param context - VS Code extension context for lifecycle management.
  */
 export function activateDataId(context: vscode.ExtensionContext): void {
-	let isAntigravity = detectAntigravityHost();
-	let isStatusBarVisible = isAntigravity;
+	const isAntigravity = isAntigravityHost(vscode.env.appName, vscode.env.uriScheme);
 
 	void vscode.commands.executeCommand('setContext', 'atm.isAntigravity', isAntigravity);
+
+	if (!isAntigravity) { return; }
 
 	// ── Status bar item ──────────────────────────────────────────────
 
@@ -117,9 +115,7 @@ export function activateDataId(context: vscode.ExtensionContext): void {
 	statusBarItem.text = `| ${ICON_DEFAULT} AI Data`;
 	statusBarItem.command = 'atm.dataId.showConsumption';
 	statusBarItem.tooltip = new vscode.MarkdownString('*Loading AI usage data...*');
-	if (isStatusBarVisible) {
-		statusBarItem.show();
-	}
+	statusBarItem.show();
 
 	// ── Core services ────────────────────────────────────────────────
 
@@ -134,18 +130,6 @@ export function activateDataId(context: vscode.ExtensionContext): void {
 	let lastSnapshot: QuotaSnapshot | null = null;
 	let fetchTimer: NodeJS.Timeout | null = null;
 	let lastReportedPercentage = 100; // Stores the last engineered percentage
-
-	/** Ensures the status bar item and context key are enabled once Antigravity is detected. */
-	function ensureStatusBarVisible(): void {
-		if (!isAntigravity) {
-			isAntigravity = true;
-			void vscode.commands.executeCommand('setContext', 'atm.isAntigravity', true);
-		}
-		if (!isStatusBarVisible) {
-			isStatusBarVisible = true;
-			statusBarItem.show();
-		}
-	}
 
 	/** Builds a hash of the snapshot to detect meaningful changes. */
 	function computeSnapshotHash(snapshot: QuotaSnapshot): string {
@@ -173,23 +157,17 @@ export function activateDataId(context: vscode.ExtensionContext): void {
 
 			// If not connected yet, detect the Antigravity process
 			if (!connectionInfo) {
-				const retries = isAntigravity || forceRefresh ? undefined : 1;
-				const processInfo = await processFinder.detectProcessInfo(retries);
+				const processInfo = await processFinder.detectProcessInfo();
 				if (processInfo) {
-					ensureStatusBarVisible();
-					quotaManager.init(processInfo.connectPort, processInfo.csrfToken);
 					quotaManager.init(processInfo.connectPort, processInfo.csrfToken, processInfo.protocol);
 					statusBarItem.text = `| ${ICON_DEFAULT} AI Data`;
 					statusBarItem.color = undefined;
 				} else {
-					if (isAntigravity || forceRefresh) {
-						ensureStatusBarVisible();
-						statusBarItem.text = `| ${ICON_ERROR} AI Data`;
-						statusBarItem.color = new vscode.ThemeColor('errorForeground');
-						statusBarItem.tooltip = new vscode.MarkdownString(
-							'Could not connect to the local Antigravity AI process.'
-						);
-					}
+					statusBarItem.text = `| ${ICON_ERROR} AI Data`;
+					statusBarItem.color = new vscode.ThemeColor('errorForeground');
+					statusBarItem.tooltip = new vscode.MarkdownString(
+						'Could not connect to the local Antigravity AI process.'
+					);
 					return false;
 				}
 			}
@@ -253,8 +231,8 @@ export function activateDataId(context: vscode.ExtensionContext): void {
 				}, 0);
 			} else {
 				// Adaptive 3-Tier Polling:
-				// Only schedule if the window is focused and Antigravity is active (performance optimization).
-				if (vscode.window.state.focused && isAntigravity) {
+				// Only schedule while the window is focused (performance optimization).
+				if (vscode.window.state.focused) {
 					const tier = lastSnapshot
 						? resolvePollingTier(lastSnapshot, lastReportedPercentage)
 						: 'normal';

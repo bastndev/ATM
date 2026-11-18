@@ -2,7 +2,7 @@
   "name": "atm",
   "displayName": "%extension.displayName%",
   "description": "%extension.description%",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "vsce": {
     "dependencies": false
   },
@@ -375,7 +375,6 @@
           "description": "Port for ATM Live Server (Go Live). If it is busy, the next free port is used automatically."
         },
 
-
         "atm.commitEmoji.addCustomEmoji": {
           "type": "array",
           "default": [],
@@ -384,7 +383,7 @@
             "title": "A custom commit emoji entry",
             "properties": {
               "emoji": { "type": "string" },
-              "code":  { "type": "string" },
+              "code": { "type": "string" },
               "description": { "type": "string" }
             }
           },
@@ -432,9 +431,6 @@
           "description": "Allow multiple emoji in sequence without stripping previously inserted ones."
         },
 
-
-
-
         "atm.goLive.host": {
           "type": "string",
           "default": "127.0.0.1",
@@ -447,11 +443,7 @@
         },
         "atm.goLive.openIn": {
           "type": "string",
-          "enum": [
-            "external",
-            "simpleBrowser",
-            "none"
-          ],
+          "enum": ["external", "simpleBrowser", "none"],
           "enumDescriptions": [
             "Open the served page in your default system browser.",
             "Open the served page inside VS Code's Simple Browser.",
@@ -486,14 +478,7 @@
           "items": {
             "type": "string"
           },
-          "default": [
-            ".vscode/**",
-            ".git/**",
-            "node_modules/**",
-            "**/*.scss",
-            "**/*.sass",
-            "**/*.ts"
-          ],
+          "default": [".vscode/**", ".git/**", "node_modules/**", "**/*.scss", "**/*.sass", "**/*.ts"],
           "description": "Glob patterns whose changes do not trigger a live reload."
         },
         "atm.goLive.headers": {
@@ -550,13 +535,7 @@
         },
         "atm.runDev.packageManager": {
           "type": "string",
-          "enum": [
-            "auto",
-            "bun",
-            "npm",
-            "pnpm",
-            "yarn"
-          ],
+          "enum": ["auto", "bun", "npm", "pnpm", "yarn"],
           "default": "auto",
           "description": "Package manager used to run the dev script. Auto-detects from the packageManager field or lockfile."
         },
@@ -567,11 +546,7 @@
         },
         "atm.runDev.openBrowser": {
           "type": "string",
-          "enum": [
-            "external",
-            "simpleBrowser",
-            "none"
-          ],
+          "enum": ["external", "simpleBrowser", "none"],
           "enumDescriptions": [
             "Open the dev URL in your default system browser.",
             "Open the dev URL inside VS Code's Simple Browser.",
@@ -595,11 +570,7 @@
           "items": {
             "type": "string"
           },
-          "default": [
-            "**/*.config.{js,ts,mjs,cjs,mts}",
-            ".env",
-            ".env.*"
-          ],
+          "default": ["**/*.config.{js,ts,mjs,cjs,mts}", ".env", ".env.*"],
           "description": "Glob patterns (relative to the project) watched when autoRestartOnConfigChange is on."
         },
         "atm.runDev.args": {
@@ -637,12 +608,7 @@
         },
         "atm.browser.searchEngine": {
           "type": "string",
-          "enum": [
-            "bing",
-            "google",
-            "duckduckgo",
-            "none"
-          ],
+          "enum": ["bing", "google", "duckduckgo", "none"],
           "default": "bing",
           "description": "Search engine used when the ATM Browser URL bar input is not a URL."
         },
@@ -685,10 +651,7 @@
         },
         "atm.image.preview.sourceFolders": {
           "type": "array",
-          "default": [
-            "static",
-            "public"
-          ],
+          "default": ["static", "public"],
           "scope": "resource",
           "description": "Additional folders to consider when resolving relative URLs"
         },
@@ -747,14 +710,7 @@
         },
         "atm.translate.provider": {
           "type": "string",
-          "enum": [
-            "auto",
-            "googleUnofficial",
-            "myMemory",
-            "libreTranslate",
-            "deepL",
-            "googleCloud"
-          ],
+          "enum": ["auto", "googleUnofficial", "myMemory", "libreTranslate", "deepL", "googleCloud"],
           "default": "auto",
           "scope": "application",
           "description": "Primary ATM Translate provider. Auto tries configured fallbacks in order."
@@ -763,30 +719,15 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": [
-              "googleUnofficial",
-              "myMemory",
-              "libreTranslate",
-              "deepL",
-              "googleCloud"
-            ]
+            "enum": ["googleUnofficial", "myMemory", "libreTranslate", "deepL", "googleCloud"]
           },
-          "default": [
-            "googleUnofficial",
-            "myMemory",
-            "libreTranslate",
-            "deepL",
-            "googleCloud"
-          ],
+          "default": ["googleUnofficial", "myMemory", "libreTranslate", "deepL", "googleCloud"],
           "scope": "application",
           "description": "Fallback order used by ATM Translate when the primary provider fails or is rate-limited."
         },
         "atm.translate.spellcheckProvider": {
           "type": "string",
-          "enum": [
-            "auto",
-            "googleUnofficial"
-          ],
+          "enum": ["auto", "googleUnofficial"],
           "default": "auto",
           "scope": "application",
           "description": "Provider used by ATM Translate Fix Spelling. Auto uses local corrections first, then Google Translate when enabled."
@@ -811,10 +752,7 @@
         },
         "atm.translate.deepLEndpoint": {
           "type": "string",
-          "enum": [
-            "free",
-            "pro"
-          ],
+          "enum": ["free", "pro"],
           "default": "free",
           "scope": "application",
           "description": "DeepL endpoint type used by ATM Translate after saving a DeepL API key."
@@ -847,10 +785,7 @@
         },
         "atm.envLens.renderMode": {
           "type": "string",
-          "enum": [
-            "blur",
-            "mask"
-          ],
+          "enum": ["blur", "mask"],
           "default": "blur",
           "description": "How ENV values are hidden in .env files: blur keeps shape visible, mask hides text fully with bullets."
         },
@@ -1059,9 +994,7 @@
       {
         "scopeName": "source.markdown.mdx.codeblock",
         "path": "./src/extensions/13-markdown-mdx/syntaxes/mdx.markdown.tmLanguage.json",
-        "injectTo": [
-          "text.html.markdown"
-        ],
+        "injectTo": ["text.html.markdown"],
         "embeddedLanguages": {
           "meta.embedded.block.mdx": "mdx"
         }
@@ -1177,32 +1110,20 @@
     "languages": [
       {
         "id": "atmignore",
-        "aliases": [
-          "ATM Ignore"
-        ],
-        "filenames": [
-          ".atmignore"
-        ],
+        "aliases": ["ATM Ignore"],
+        "filenames": [".atmignore"],
         "configuration": "./src/extensions/28-atm-formatter/syntaxes/language-configuration.json"
       },
       {
         "id": "mdx",
-        "aliases": [
-          "MDX"
-        ],
-        "extensions": [
-          ".mdx"
-        ],
+        "aliases": ["MDX"],
+        "extensions": [".mdx"],
         "configuration": "./src/extensions/13-markdown-mdx/syntaxes/language-configuration.json"
       }
     ],
     "markdown.markdownItPlugins": true,
-    "markdown.previewScripts": [
-      "./dist/mermaidPreview.js"
-    ],
-    "markdown.previewStyles": [
-      "./src/extensions/12-markdown-md/ui/checkboxes.css"
-    ],
+    "markdown.previewScripts": ["./dist/mermaidPreview.js"],
+    "markdown.previewStyles": ["./src/extensions/12-markdown-md/ui/checkboxes.css"],
     "menus": {
       "commandPalette": [
         {
@@ -1249,7 +1170,6 @@
         }
       ],
       "editor/title": [
-
         {
           "command": "atm.ira.open",
           "group": "navigation@-1",
