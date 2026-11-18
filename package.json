@@ -83,8 +83,7 @@
     "onLanguage:vue",
     "onLanguage:astro",
     "onLanguage:svelte",
-    "onLanguage:json",
-    "onLanguage:toml"
+    "onLanguage:json"
   ],
   "packageManager": "bun@1.3.4",
   "l10n": "./l10n",
