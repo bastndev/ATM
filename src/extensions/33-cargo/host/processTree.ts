@@ -1,4 +1,5 @@
 import { ChildProcess, spawn } from 'child_process';
+import * as os from 'os';
 
 /**
  * Starts processes so that the whole tree can be stopped later. A GUI app
@@ -32,6 +33,21 @@ export function spawnTree(command: string, args: readonly string[], options: Spa
 	// Writing to a program that already exited fails; that is not an error worth reporting.
 	child.stdin?.on('error', () => undefined);
 	return child;
+}
+
+/**
+ * Lets everything else go first (nice 10 on Linux and macOS, "below normal"
+ * on Windows). The rustc processes cargo starts afterwards inherit it.
+ */
+export function lowerPriority(child: ChildProcess): void {
+	if (child.pid === undefined) {
+		return;
+	}
+	try {
+		os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+	} catch {
+		// The process already exited, or the system refused; it simply runs at normal priority.
+	}
 }
 
 export function isRunning(child: ChildProcess): boolean {

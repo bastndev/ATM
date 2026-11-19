@@ -1,12 +1,13 @@
 import { ChildProcess } from 'child_process';
 import { NO_AUTO_INSTALL } from '../../32-rust/core/rustup';
 import { Artifact, LineSplitter, parseBuildLine } from '../core/buildOutput';
-import { spawnTree, stopTree } from './processTree';
+import { lowerPriority, spawnTree, stopTree } from './processTree';
 
 /**
- * One `cargo build` run. Shows cargo's output as it comes, keeps the
- * compiler messages for the Problems panel and reports the executable it
- * produced. It never starts the program; the runner decides that.
+ * One cargo run: Cargo Run's `cargo build`, or the save check's
+ * `cargo check`. Shows cargo's output as it comes, keeps the compiler
+ * messages for the Problems panel and reports the executables it produced.
+ * It never starts the program; the runner decides that.
  */
 
 export interface BuildSpec {
@@ -15,6 +16,11 @@ export interface BuildSpec {
 	args: string[];
 	/** Terminal width, for cargo's progress bar. */
 	columns: number | undefined;
+	/**
+	 * Nobody watches the output (the save check): no colours, no progress
+	 * bar, and a lower CPU priority, so typing stays smooth while it runs.
+	 */
+	background?: boolean;
 }
 
 export interface BuildResult {
@@ -36,7 +42,10 @@ export class CargoBuild {
 	private cancelled = false;
 
 	constructor(spec: BuildSpec, output: (text: string) => void) {
-		this.child = spawnTree(spec.cargo, spec.args, { cwd: spec.cwd, env: buildEnv(spec.columns) });
+		this.child = spawnTree(spec.cargo, spec.args, { cwd: spec.cwd, env: buildEnv(spec) });
+		if (spec.background) {
+			lowerPriority(this.child);
+		}
 		this.done = collect(this.child, output, () => this.cancelled);
 	}
 
@@ -48,14 +57,17 @@ export class CargoBuild {
 	}
 }
 
-function buildEnv(columns: number | undefined): NodeJS.ProcessEnv {
+function buildEnv(spec: BuildSpec): NodeJS.ProcessEnv {
+	if (spec.background) {
+		return { ...process.env, ...NO_AUTO_INSTALL, CARGO_TERM_COLOR: 'never', CARGO_TERM_PROGRESS_WHEN: 'never' };
+	}
 	return {
 		...process.env,
 		...NO_AUTO_INSTALL,
 		CARGO_TERM_COLOR: 'always',
 		// stderr is a pipe, so cargo would hide its progress bar; the terminal can draw it.
 		CARGO_TERM_PROGRESS_WHEN: 'always',
-		CARGO_TERM_PROGRESS_WIDTH: String(Math.max(columns ?? 80, 40)),
+		CARGO_TERM_PROGRESS_WIDTH: String(Math.max(spec.columns ?? 80, 40)),
 	};
 }
 

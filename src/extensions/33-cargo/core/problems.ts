@@ -23,6 +23,16 @@ export interface Problem {
 	code?: string;
 }
 
+/**
+ * Where problems go: the Problems panel and the underlines. Each workspace
+ * folder's problems replace that folder's previous ones, so a check in one
+ * Cargo workspace never wipes another's. Cargo Run's build, the save check
+ * and a cargo command in a terminal all write here: the latest one wins.
+ */
+export interface ProblemSink {
+	set(root: string, problems: Problem[]): void;
+}
+
 interface Span {
 	file_name: string;
 	line_start: number;
@@ -30,6 +40,8 @@ interface Span {
 	column_start: number;
 	column_end: number;
 	is_primary: boolean;
+	/** The text rustc prints next to the ^^^ marks, such as "expected `u32`, found `&str`". */
+	label?: string | null;
 	expansion?: { span?: Span } | null;
 }
 
@@ -49,21 +61,34 @@ export function toProblems(message: unknown, workspaceRoot: string): Problem[] {
 		return [];
 	}
 	const code = typeof asObject(data.code).code === 'string' ? (asObject(data.code).code as string) : undefined;
-	const text = [data.message, ...childLines(data.children)].join('\n');
+	const title = data.message;
+	const children = childLines(data.children);
 
 	return data.spans
 		.filter((span): span is Span => isSpan(span) && span.is_primary)
-		.map((span) => userSpan(span, workspaceRoot))
-		.map((span) => ({
-			file: path.resolve(workspaceRoot, span.file_name),
-			line: Math.max(span.line_start - 1, 0),
-			column: Math.max(span.column_start - 1, 0),
-			endLine: Math.max(span.line_end - 1, 0),
-			endColumn: Math.max(span.column_end - 1, 0),
-			severity,
-			message: text,
-			code,
-		}));
+		.map((primary) => {
+			const span = userSpan(primary, workspaceRoot);
+			return {
+				file: path.resolve(workspaceRoot, span.file_name),
+				line: Math.max(span.line_start - 1, 0),
+				column: Math.max(span.column_start - 1, 0),
+				endLine: Math.max(span.line_end - 1, 0),
+				endColumn: Math.max(span.column_end - 1, 0),
+				severity,
+				message: [title, ...labelLine(primary.label, title), ...children].join('\n'),
+				code,
+			};
+		});
+}
+
+/**
+ * The primary span's label on its own line, as rustc's short output adds it
+ * ("mismatched types: expected `u32`, found `&str`"). It often carries the
+ * detail that matters; the message alone would say only "mismatched types".
+ */
+function labelLine(label: string | null | undefined, title: string): string[] {
+	const text = label?.trim();
+	return text && !title.includes(text) ? [text] : [];
 }
 
 /** Problems from a whole build, without the duplicates cargo prints when two targets share a file. */

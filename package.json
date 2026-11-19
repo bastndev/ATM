@@ -1049,6 +1049,19 @@
           },
           "default": [],
           "description": "Arguments passed to the program, like the ones after -- in cargo run -- …"
+        },
+        "atm.cargo.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run cargo check after you save a .rs file, Cargo.toml or Cargo.lock, and after a cargo command you typed in the terminal ends, then underline the errors and warnings in the editor (Error Lens shows them at the end of the line). cargo check skips code generation and linking, so it is much lighter than a build. The first check of a project checks its dependencies once; later checks redo only what changed. It runs at low priority, one at a time per workspace, and a new save restarts it. Off while the rust-analyzer extension is installed, which checks on save itself. Only in trusted folders."
+        },
+        "atm.cargo.checkArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra arguments for the check after saving, such as [\"--all-targets\"] to also check tests and examples, or [\"--features\", \"dev\"]. Without them, cargo check --workspace checks the libraries and programs of every package."
         }
       }
     },

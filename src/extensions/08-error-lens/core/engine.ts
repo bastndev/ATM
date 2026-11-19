@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { shouldExcludeFromErrorLens } from './exclusions';
+import { inlineMessage } from './message';
 
 /* =========================================================
  * 🛡️ VALIDATION CHECKS
@@ -19,6 +20,9 @@ function _shouldExclude(scheme: string): boolean {
  * 1. Map used for O(1) performance.
  * 2. Filter out Hint/Info. Keep only the most severe error.
  * 3. Ghost rendering avoidance (using margin instead of blank spaces).
+ * 4. Each message covers its whole line (see ui/styles.ts), so VS Code
+ *    moves it with the code while you type, like the squiggle, and nothing
+ *    has to be recomputed per keystroke.
  */
 export function updateDecorationsForEditor(
   editor: vscode.TextEditor,
@@ -72,16 +76,11 @@ export function updateDecorationsForEditor(
     }
     const text = document.lineAt(line).text;
 
-    const endPos = new vscode.Position(line, text.length);
-    const range = new vscode.Range(endPos, endPos);
+    // The whole line: the message is drawn after its end wherever the range sits.
+    const range = new vscode.Range(line, 0, line, text.length);
 
-    // Cleaned message to prevent the opaque box bug (ghost background)
-    let cleanMsg = diagnostic.message.replace(/\r?\n/g, ' ').trim();
-
-    // Performance & Aesthetics: cut huge strings to avoid UI destruction
-    if (cleanMsg.length > 100) {
-      cleanMsg = cleanMsg.substring(0, 100) + '...';
-    }
+    // One line, cut between the message's lines (no newline: avoids the ghost background box)
+    const cleanMsg = inlineMessage(diagnostic.message);
 
     if (!cleanMsg) {
       continue;

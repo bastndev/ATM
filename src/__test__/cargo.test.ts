@@ -9,8 +9,11 @@ import { LineInput } from '../extensions/33-cargo/core/lineInput';
 import { CargoWorkspace, parseMetadata } from '../extensions/33-cargo/core/metadata';
 import { collectProblems, Problem, toProblems } from '../extensions/33-cargo/core/problems';
 import { buildArgs, chooseProgram, displayCommand, parseRunArgs, selectionKey } from '../extensions/33-cargo/core/programs';
-import { triggersRestart } from '../extensions/33-cargo/core/saveFilter';
+import { affectsBuild, isCargoSource } from '../extensions/33-cargo/core/saveFilter';
+import { CargoFailure, checkArgs, isCargoCommand, manifestPathIn } from '../extensions/33-cargo/core/check';
+import { BuildResult, CargoBuild } from '../extensions/33-cargo/host/build';
 import { readWorkspace } from '../extensions/33-cargo/host/cargoTools';
+import { BuildActivity, CargoChecker, CheckRun, CheckTarget } from '../extensions/33-cargo/host/checker';
 import { CargoRunner, RunnerView } from '../extensions/33-cargo/host/runner';
 
 // This file uses no VS Code API, so it also runs under plain mocha (--ui tdd).
@@ -285,6 +288,21 @@ suite('Cargo Run Test Suite', () => {
 			assert.strictEqual(problems[0].code, 'E0308');
 		});
 
+		test('adds the label under the ^^^ marks on its own line, unless the message already says it', () => {
+			const mismatch = toProblems(
+				{
+					level: 'error',
+					message: 'mismatched types',
+					spans: [span('src/main.rs', 2, 18, { label: 'expected `u32`, found `&str`' }), span('src/main.rs', 2, 12, { is_primary: false, label: 'expected due to this' })],
+					children: [],
+				},
+				ROOT,
+			);
+			assert.strictEqual(mismatch[0].message, 'mismatched types\nexpected `u32`, found `&str`');
+			const repeated = toProblems({ level: 'error', message: 'cannot find value `x` in this scope', spans: [span('src/main.rs', 1, 1, { label: 'in this scope' })] }, ROOT);
+			assert.strictEqual(repeated[0].message, 'cannot find value `x` in this scope');
+		});
+
 		test('an error inside a macro points where the macro is called', () => {
 			const inMacro = span('/home/u/.rustup/toolchains/stable/lib/rustlib/src/rust/library/core/src/macros/mod.rs', 100, 5, {
 				expansion: { span: span('src/main.rs', 7, 5) },
@@ -335,12 +353,270 @@ suite('Cargo Run Test Suite', () => {
 	suite('restart on save', () => {
 		test('rebuilds for Rust and Cargo files of the workspace only', () => {
 			const scope = { root: ROOT, targetDir: path.join(ROOT, 'target') };
-			assert.ok(triggersRestart(path.join(ROOT, 'crates/ui/src/lib.rs'), scope));
-			assert.ok(triggersRestart(path.join(ROOT, 'Cargo.toml'), scope));
-			assert.ok(triggersRestart(path.join(ROOT, 'Cargo.lock'), scope));
-			assert.ok(!triggersRestart(path.join(ROOT, 'README.md'), scope));
-			assert.ok(!triggersRestart(path.join(ROOT, 'target/debug/build/x/out/gen.rs'), scope));
-			assert.ok(!triggersRestart(path.resolve('/elsewhere/main.rs'), scope));
+			assert.ok(affectsBuild(path.join(ROOT, 'crates/ui/src/lib.rs'), scope));
+			assert.ok(affectsBuild(path.join(ROOT, 'Cargo.toml'), scope));
+			assert.ok(affectsBuild(path.join(ROOT, 'Cargo.lock'), scope));
+			assert.ok(!affectsBuild(path.join(ROOT, 'README.md'), scope));
+			assert.ok(!affectsBuild(path.join(ROOT, 'target/debug/build/x/out/gen.rs'), scope));
+			assert.ok(!affectsBuild(path.resolve('/elsewhere/main.rs'), scope));
+			assert.ok(isCargoSource('/anywhere/x.rs') && isCargoSource('/a/Cargo.toml') && !isCargoSource('/a/x.ts'));
+		});
+	});
+
+	suite('save check: commands', () => {
+		test('checks the whole workspace in JSON, unless the settings pick packages', () => {
+			assert.deepStrictEqual(checkArgs([]), ['check', '--workspace', '--message-format=json-diagnostic-short']);
+			assert.deepStrictEqual(checkArgs(['--all-targets']), ['check', '--workspace', '--message-format=json-diagnostic-short', '--all-targets']);
+			assert.deepStrictEqual(checkArgs(['-p', 'ui']), ['check', '--message-format=json-diagnostic-short', '-p', 'ui']);
+			assert.ok(!checkArgs(['--package=ui']).includes('--workspace'));
+		});
+
+		test('recognises cargo typed in a terminal, and nothing else', () => {
+			const cargoLines = [
+				'cargo run',
+				'cargo +nightly build --release',
+				'RUST_LOG=debug cargo run',
+				'cd crates/ui && cargo test',
+				'~/.cargo/bin/cargo b',
+				'C:\\Users\\me\\.cargo\\bin\\cargo.exe check',
+				'  cargo',
+			];
+			cargoLines.forEach((commandLine) => assert.ok(isCargoCommand(commandLine), commandLine));
+			['cargo-watch -x run', 'CARGO_HOME=/x ls', 'npm run dev', 'echo cargoes'].forEach((commandLine) => assert.ok(!isCargoCommand(commandLine), commandLine));
+		});
+
+		test('reads --manifest-path in both spellings', () => {
+			assert.strictEqual(manifestPathIn('cargo run --manifest-path src-tauri/Cargo.toml'), 'src-tauri/Cargo.toml');
+			assert.strictEqual(manifestPathIn('cargo build --manifest-path="my app/Cargo.toml" -q'), 'my app/Cargo.toml');
+			assert.strictEqual(manifestPathIn('cargo run'), undefined);
+		});
+
+		test('keeps the one line that says why cargo stopped', () => {
+			const broken = new CargoFailure();
+			broken.push('    Updating crates.io index\n\x1b[1m\x1b[31merror\x1b[0m: failed to parse manifest at `/w/Cargo.toml`\n\nCaused');
+			broken.push(' by:\n  error: unexpected key\n');
+			assert.strictEqual(broken.message(), 'error: failed to parse manifest at `/w/Cargo.toml`');
+			const missing = new CargoFailure();
+			missing.push('    Checking demo v0.1.0\n\r\x1b[Kspawn cargo ENOENT\n');
+			assert.strictEqual(missing.message(), 'spawn cargo ENOENT');
+		});
+	});
+
+	suite('save check: when it runs', () => {
+		const target: CheckTarget = { root: ROOT, cargo: 'cargo' };
+		const error = { level: 'error', message: 'mismatched types', spans: [span('src/main.rs', 2, 18)] };
+
+		interface FakeRun {
+			cancelled: boolean;
+			output(text: string): void;
+			finish(result: Partial<BuildResult>): void;
+		}
+
+		/** A checker whose checks end when the test says so, next to a fake Cargo Run. */
+		function setup(clock = { now: 0 }) {
+			const runs: FakeRun[] = [];
+			const published: Problem[][] = [];
+			const failures: string[] = [];
+			let building = false;
+			let onActivity: (() => void) | undefined;
+			const activity: BuildActivity = {
+				isBuilding: () => building,
+				onDidChange: (listener) => {
+					onActivity = listener;
+					return { dispose: () => (onActivity = undefined) };
+				},
+			};
+			const start = (_target: CheckTarget, _args: string[], output: (text: string) => void): CheckRun => {
+				let resolve: (result: BuildResult) => void = () => undefined;
+				const done = new Promise<BuildResult>((settle) => (resolve = settle));
+				const run: FakeRun = {
+					cancelled: false,
+					output,
+					finish: (result) => resolve({ success: true, cancelled: false, artifacts: [], messages: [], ...result }),
+				};
+				runs.push(run);
+				return {
+					done,
+					cancel: async () => {
+						run.cancelled = true;
+						resolve({ success: false, cancelled: true, artifacts: [], messages: [] });
+					},
+				};
+			};
+			const checker = new CargoChecker(start, { set: (_root, list) => published.push(list) }, activity, {
+				args: () => [],
+				failed: (_root, message) => failures.push(message),
+				delayMs: 0,
+				now: () => clock.now,
+			});
+			const setBuilding = (value: boolean) => {
+				building = value;
+				onActivity?.();
+			};
+			return { runs, published, failures, checker, setBuilding };
+		}
+
+		test('saves close together start one check, whose problems are shown', async () => {
+			const { runs, published, checker } = setup();
+			checker.request(target);
+			checker.request(target);
+			checker.request(target);
+			await waitUntil(() => runs.length === 1);
+			assert.ok(checker.busy);
+			await delay(30);
+			assert.strictEqual(runs.length, 1);
+			runs[0].finish({ success: false, messages: [error] });
+			await waitUntil(() => published.length === 1);
+			assert.deepStrictEqual(published[0].map(where), ['src/main.rs:1:17 error']);
+			assert.ok(!checker.busy);
+			checker.dispose();
+		});
+
+		test('the first check may be checking every dependency: it finishes, then the newer save is checked', async () => {
+			const { runs, published, checker } = setup();
+			checker.request(target);
+			await waitUntil(() => runs.length === 1);
+			checker.request(target);
+			await delay(30);
+			assert.strictEqual(runs.length, 1);
+			assert.ok(!runs[0].cancelled, 'a cold check is not thrown away');
+			runs[0].finish({});
+			await waitUntil(() => runs.length === 2);
+			assert.strictEqual(published.length, 1);
+			checker.dispose();
+		});
+
+		test('once a check has finished, a new save restarts the running one, whose result is dropped', async () => {
+			const { runs, published, checker } = setup();
+			checker.request(target);
+			await waitUntil(() => runs.length === 1);
+			runs[0].finish({});
+			await waitUntil(() => published.length === 1);
+
+			checker.request(target);
+			await waitUntil(() => runs.length === 2);
+			checker.request(target);
+			await waitUntil(() => runs.length === 3);
+			assert.ok(runs[1].cancelled);
+			runs[2].finish({ success: false, messages: [error] });
+			await waitUntil(() => published.length === 2);
+			await delay(30);
+			assert.strictEqual(published.length, 2, 'the cancelled check publishes nothing');
+			assert.strictEqual(published[1].length, 1);
+			checker.dispose();
+		});
+
+		test('a warm check that has run for 10 s is let finish, so frequent saves cannot starve it', async () => {
+			const clock = { now: 0 };
+			const { runs, checker } = setup(clock);
+			checker.request(target);
+			await waitUntil(() => runs.length === 1);
+			runs[0].finish({});
+			checker.request(target);
+			await waitUntil(() => runs.length === 2);
+			clock.now = 10_000;
+			checker.request(target);
+			await delay(30);
+			assert.strictEqual(runs.length, 2);
+			assert.ok(!runs[1].cancelled);
+			runs[1].finish({});
+			await waitUntil(() => runs.length === 3);
+			checker.dispose();
+		});
+
+		test("Cargo Run's build replaces the check; saves made while it builds are checked after it", async () => {
+			const { runs, checker, setBuilding } = setup();
+			checker.request(target);
+			await waitUntil(() => runs.length === 1);
+			setBuilding(true);
+			assert.ok(runs[0].cancelled);
+
+			// A build with no save during it needs no check afterwards: it reported the errors itself.
+			setBuilding(false);
+			setBuilding(true);
+			checker.request(target);
+			await delay(30);
+			assert.strictEqual(runs.length, 1, 'no check while Cargo Run builds');
+			setBuilding(false);
+			await waitUntil(() => runs.length === 2);
+			checker.dispose();
+		});
+
+		test('a cargo command in a terminal cancels the running check and the one about to start', async () => {
+			const { runs, published, checker } = setup();
+			checker.request(target);
+			await waitUntil(() => runs.length === 1);
+			checker.cancel(ROOT);
+			assert.ok(runs[0].cancelled);
+			checker.request(target);
+			checker.cancel(ROOT);
+			await delay(30);
+			assert.strictEqual(runs.length, 1);
+			assert.strictEqual(published.length, 0);
+			checker.dispose();
+		});
+
+		test("when cargo can't check (broken Cargo.toml), the problems shown stay and the reason is reported", async () => {
+			const { runs, published, failures, checker } = setup();
+			checker.request(target);
+			await waitUntil(() => runs.length === 1);
+			runs[0].output('error: failed to parse manifest at `/work/ide/Cargo.toml`\n\nCaused by:\n');
+			runs[0].finish({ success: false });
+			await waitUntil(() => failures.length === 1);
+			assert.strictEqual(failures[0], 'error: failed to parse manifest at `/work/ide/Cargo.toml`');
+			assert.strictEqual(published.length, 0);
+			checker.dispose();
+		});
+	});
+
+	suite('save check (checks with the real cargo)', function () {
+		this.timeout(120_000);
+
+		let cargo: string | undefined;
+		let project: string;
+
+		suiteSetup(async function () {
+			project = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-cargo-check-'));
+			cargo = await findTool('cargo', project);
+			if (!cargo) {
+				this.skip();
+			}
+			fs.mkdirSync(path.join(project, 'src'));
+			fs.writeFileSync(path.join(project, 'Cargo.toml'), '[package]\nname = "cargo-check-demo"\nversion = "0.1.0"\nedition = "2021"\n');
+			fs.writeFileSync(path.join(project, 'src/main.rs'), 'fn main() {\n    let x: u32 = "no";\n}\n');
+		});
+
+		suiteTeardown(() => {
+			fs.rmSync(project, { recursive: true, force: true });
+		});
+
+		test('underlines the error of the saved code with its label, then clears it once fixed', async () => {
+			assert.ok(cargo);
+			const workspace = await readWorkspace(cargo, project);
+			const published: Problem[][] = [];
+			const noBuilds: BuildActivity = { isBuilding: () => false, onDidChange: () => ({ dispose: () => undefined }) };
+			const checker = new CargoChecker(
+				(checkTarget, args, output) => new CargoBuild({ cargo: checkTarget.cargo, cwd: checkTarget.root, args, columns: undefined, background: true }, output),
+				{ set: (_root, list) => published.push(list) },
+				noBuilds,
+				{ args: () => [], failed: (_root, message) => assert.fail(message), delayMs: 0 },
+			);
+			try {
+				checker.request({ root: workspace.root, cargo });
+				await waitUntil(() => published.length === 1);
+				const errors = published[0].filter((problem) => problem.severity === 'error');
+				assert.strictEqual(errors.length, 1);
+				assert.strictEqual(errors[0].file, path.join(workspace.root, 'src', 'main.rs'));
+				assert.deepStrictEqual([errors[0].line, errors[0].column, errors[0].endColumn], [1, 17, 21]);
+				assert.ok(errors[0].message.startsWith('mismatched types\nexpected `u32`, found `&str`'), errors[0].message);
+
+				fs.writeFileSync(path.join(project, 'src/main.rs'), 'fn main() {}\n');
+				checker.request({ root: workspace.root, cargo });
+				await waitUntil(() => published.length === 2);
+				assert.deepStrictEqual(published[1], []);
+			} finally {
+				checker.dispose();
+			}
 		});
 	});
 
@@ -391,7 +667,7 @@ suite('Cargo Run Test Suite', () => {
 			const workspace = await readWorkspace(cargo, project);
 			const choice = chooseProgram(workspace, { file: path.join(project, 'src/main.rs') });
 			assert.ok(choice.kind === 'selected');
-			runner = new CargoRunner(view, { set: (list) => (problems.last = list), clear: () => (problems.last = []) }, { buildArgs: () => [], programArgs: () => [] });
+			runner = new CargoRunner(view, { set: (_root, list) => (problems.last = list) }, { buildArgs: () => [], programArgs: () => [] });
 			await runner.start({ cargo, workspace, selection: choice.selection, cwd: workspace.root, toolchainLibDirs: [] });
 
 			const firstPid = await waitForPid(view, 1);
@@ -479,6 +755,10 @@ function isAlive(pid: number): boolean {
 	} catch {
 		return false;
 	}
+}
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function waitUntil(condition: () => boolean, timeoutMs = 60_000): Promise<void> {

@@ -10,49 +10,58 @@ export function activateErrorLens(context: vscode.ExtensionContext): void {
 
   /* =========================================================
    * ⏱️ DEBOUNCE & UPDATE
-   * Helper function with centralized debounce
+   * Only editors whose diagnostics changed are redrawn. Typing redraws
+   * nothing: the messages are anchored to their lines, so VS Code moves
+   * them with the code (see ui/styles.ts).
    * ========================================================= */
   let diagnosticTimer: NodeJS.Timeout | null = null;
   const DEBOUNCE_MS = 300;
+  const changedUris = new Set<string>();
+  let redrawAll = false;
 
-  const triggerUpdate = () => {
+  const flush = () => {
+    diagnosticTimer = null;
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (!redrawAll && !changedUris.has(editor.document.uri.toString())) {
+        continue;
+      }
+      // one failing editor must not block clearing decorations in the rest
+      try {
+        updateDecorationsForEditor(editor, styles);
+      } catch (err) {
+        console.error('[error-lens] Failed to update decorations:', err);
+      }
+    }
+    changedUris.clear();
+    redrawAll = false;
+  };
+
+  /** No uris: every visible editor (one may have just opened). */
+  const triggerUpdate = (uris?: readonly vscode.Uri[]) => {
+    if (uris) {
+      uris.forEach((uri) => changedUris.add(uri.toString()));
+    } else {
+      redrawAll = true;
+    }
     if (diagnosticTimer) {
       clearTimeout(diagnosticTimer);
     }
-    diagnosticTimer = setTimeout(() => {
-      for (const editor of vscode.window.visibleTextEditors) {
-        // one failing editor must not block clearing decorations in the rest
-        try {
-          updateDecorationsForEditor(editor, styles);
-        } catch (err) {
-          console.error('[error-lens] Failed to update decorations:', err);
-        }
-      }
-    }, DEBOUNCE_MS);
+    diagnosticTimer = setTimeout(flush, DEBOUNCE_MS);
   };
 
   /* =========================================================
    * 🔌 REGISTER CORE EVENTS
    * ========================================================= */
   context.subscriptions.push(
-    vscode.languages.onDidChangeDiagnostics(() => {
-      triggerUpdate();
+    vscode.languages.onDidChangeDiagnostics((event) => {
+      triggerUpdate(event.uris);
     }),
-    vscode.window.onDidChangeActiveTextEditor((editor) => {
-      if (editor) {
-        triggerUpdate();
-      }
-    }),
+    // Switching tabs or splitting creates new editors, which start without decorations.
     vscode.window.onDidChangeVisibleTextEditors(() => {
       triggerUpdate();
     }),
-    vscode.workspace.onDidChangeTextDocument((event) => {
-      const editor = vscode.window.activeTextEditor;
-      if (editor && event.document === editor.document) {
-        triggerUpdate();
-      }
-    }),
     styles,
+    { dispose: () => diagnosticTimer && clearTimeout(diagnosticTimer) },
   );
 
   /* =========================================================

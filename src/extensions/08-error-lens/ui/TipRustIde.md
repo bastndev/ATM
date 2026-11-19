@@ -29,3 +29,5 @@ Only in Antigravity (`vscode.env.appName`): on the caret line, show an icon-only
 - Give the end-of-line space one owner with priorities (diagnostics, AI hints, ghost text, blame). Resolve collisions in layout, not by painting on top.
 - Anchor widgets to the visual end of the line (after virtual text), not to the last text column.
 - Avoid opaque backgrounds on floating hints; they hide whatever is underneath.
+- Anchor end-of-line messages to their **line**, not to a column, and let the editor move them with edits like squiggles. ATM's Error Lens does this with `isWholeLine` + `ClosedClosed` (`styles.ts`): Enter at the end of the line keeps the message there, and nothing is recomputed per keystroke, only when diagnostics change.
+- Cut a long message between its lines, not mid-word (`core/message.ts`): compilers put the detail on later lines.

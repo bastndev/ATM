@@ -1,8 +1,10 @@
 import * as vscode from 'vscode';
-import { triggersRestart } from '../core/saveFilter';
-import { ProblemsPanel } from '../ui/problems';
+import { samePath } from '../core/paths';
+import { ProblemSink } from '../core/problems';
+import { affectsBuild } from '../core/saveFilter';
 import { CargoStatusBar } from '../ui/statusBar';
 import { CargoTerminal } from '../ui/terminal';
+import { BuildActivity } from './checker';
 import { activeFile, CargoProjects } from './projects';
 import { CargoRunner } from './runner';
 import { SessionRequest, SessionResolver } from './session';
@@ -27,11 +29,9 @@ const CONTEXT_BUILDING = 'atm.cargo.building';
 /** Saving several files at once (Save All) restarts once. */
 const SAVE_DEBOUNCE_MS = 300;
 
-export class CargoController implements vscode.Disposable {
-	private readonly projects = new CargoProjects();
+export class CargoController implements BuildActivity, vscode.Disposable {
 	private readonly sessions: SessionResolver;
 	private readonly terminal: CargoTerminal;
-	private readonly problems = new ProblemsPanel();
 	private readonly statusBar = new CargoStatusBar();
 	private readonly runner: CargoRunner;
 	private readonly disposables: vscode.Disposable[];
@@ -40,8 +40,15 @@ export class CargoController implements vscode.Disposable {
 	private saveTimer: ReturnType<typeof setTimeout> | undefined;
 	/** Bumped per project check, so a slow answer for an old editor is dropped. */
 	private projectCheck = 0;
+	/** Saving every file right before a build: those saves are this build's, not the save check's. */
+	private savingForBuild = false;
 
-	constructor(memento: vscode.Memento) {
+	/** `projects` and `problems` are shared with the save check; activateCargo owns and disposes them. */
+	constructor(
+		memento: vscode.Memento,
+		private readonly projects: CargoProjects,
+		problems: ProblemSink,
+	) {
 		this.sessions = new SessionResolver(memento, this.projects);
 		this.terminal = new CargoTerminal({
 			acceptsInput: () => this.runner.acceptsInput,
@@ -50,14 +57,12 @@ export class CargoController implements vscode.Disposable {
 			interrupt: () => void this.stop(),
 			closed: () => void this.stop(),
 		});
-		this.runner = new CargoRunner(this.terminal, this.problems, {
+		this.runner = new CargoRunner(this.terminal, problems, {
 			buildArgs: () => stringList(this.config().get('buildArgs')),
 			programArgs: () => stringList(this.config().get('programArgs')),
 		});
 		this.disposables = [
-			this.projects,
 			this.terminal,
-			this.problems,
 			this.statusBar,
 			this.runner.onDidChange(() => this.render()),
 			this.projects.onDidChange(() => void this.updateProjectContext()),
@@ -121,6 +126,26 @@ export class CargoController implements vscode.Disposable {
 		this.terminal.show(false);
 	}
 
+	/** Cargo Run is building in this workspace. */
+	isBuilding(root: string): boolean {
+		const session = this.runner.session;
+		return session !== undefined && this.runner.state.phase === 'building' && samePath(session.workspace.root, root);
+	}
+
+	/** Fires when a build starts or ends (and on every other change of the runner). */
+	onDidChange(listener: () => void): vscode.Disposable {
+		return this.runner.onDidChange(listener);
+	}
+
+	/**
+	 * Cargo Run builds this save itself: it is one of the saves made right
+	 * before a build, or restart-on-save rebuilds for it. Checking it too
+	 * would only repeat that build. Asked while the save event is handled.
+	 */
+	coversSave(file: string): boolean {
+		return this.savingForBuild || this.restartsOnSave(file);
+	}
+
 	private async start(request: SessionRequest): Promise<void> {
 		if (!vscode.workspace.isTrusted) {
 			const manage = vscode.l10n.t('Manage Workspace Trust');
@@ -153,7 +178,13 @@ export class CargoController implements vscode.Disposable {
 	/** Saves open files first, like VS Code tasks do (task.saveBeforeRun), so the build sees the latest code. */
 	private async saveThen(action: () => Promise<void>): Promise<void> {
 		if (vscode.workspace.getConfiguration('task').get<string>('saveBeforeRun', 'always') === 'always') {
-			await vscode.workspace.saveAll(false);
+			// VS Code reports each save before saveAll resolves, so the flag covers all of them.
+			this.savingForBuild = true;
+			try {
+				await vscode.workspace.saveAll(false);
+			} finally {
+				this.savingForBuild = false;
+			}
 		}
 		// Those saves would also trigger restart-on-save; this build covers them.
 		clearTimeout(this.saveTimer);
@@ -161,15 +192,22 @@ export class CargoController implements vscode.Disposable {
 	}
 
 	private onSave(document: vscode.TextDocument): void {
-		const session = this.runner.session;
-		if (!session || !this.runner.watching || document.uri.scheme !== 'file' || !this.config().get<boolean>('restartOnSave', false)) {
-			return;
-		}
-		if (!triggersRestart(document.uri.fsPath, { root: session.workspace.root, targetDir: session.workspace.targetDir })) {
+		if (document.uri.scheme !== 'file' || !this.restartsOnSave(document.uri.fsPath)) {
 			return;
 		}
 		clearTimeout(this.saveTimer);
 		this.saveTimer = setTimeout(() => void this.runner.restart(), SAVE_DEBOUNCE_MS);
+	}
+
+	/** restart-on-save is on and this file belongs to the program that runs (or failed to build). */
+	private restartsOnSave(file: string): boolean {
+		const session = this.runner.session;
+		return (
+			session !== undefined &&
+			this.runner.watching &&
+			this.config().get<boolean>('restartOnSave', false) &&
+			affectsBuild(file, { root: session.workspace.root, targetDir: session.workspace.targetDir })
+		);
 	}
 
 	private onConfigChange(): void {

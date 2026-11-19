@@ -37,6 +37,11 @@ export class CargoProjects implements vscode.Disposable {
 		return isToolchainFile(file) ? Promise.resolve(undefined) : this.lookUp(path.dirname(file));
 	}
 
+	/** Folder of the nearest Cargo.toml in `dir` or above it, such as the folder a terminal is in. */
+	projectDir(dir: string): Promise<string | undefined> {
+		return isToolchainFile(dir) ? Promise.resolve(undefined) : this.lookUp(path.resolve(dir));
+	}
+
 	/** Cargo projects of the open folders: a Cargo.toml at the top, or else one level down (Tauri's src-tauri/). */
 	async workspaceProjects(): Promise<string[]> {
 		const projects: string[] = [];

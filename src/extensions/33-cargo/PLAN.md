@@ -1,6 +1,6 @@
-# 33-cargo — Cargo Run
+# 33-cargo — Cargo Run and the save check
 
-> Built on 2026-11-18. This file records the decisions and how the module works, for anyone (or any new chat) picking it up.
+> Built on 2026-11-18; the save check was added the same day. This file records the decisions and how the module works, for anyone (or any new chat) picking it up.
 > Read `AGENTS.md` at the repo root first. 33-cargo reuses `32-rust` for finding cargo and blocking toolchain downloads.
 
 ## The problem it solves
@@ -37,6 +37,35 @@ It starts the executable itself (not `cargo run`) because `cargo run` would have
 | Tauri | Not special-cased | Cargo Run builds and starts the Rust binary exactly like `cargo run` in `src-tauri/`. For the full `tauri dev` (frontend server + app), use Run Dev from a `.ts` file |
 | Cargo task list | `cargo run` stays in Run Task (32-rust) | It's harmless there |
 
+## The save check
+
+**The problem (the user's words, 2026-11-18):** "When I write something wrong and press Ctrl+S, it should mark me red." Before, errors were underlined only after Cargo Run's own build. A wrong line saved with Ctrl+S, or a `cargo run` typed in the terminal, underlined nothing; the only way to find the error was reading the whole terminal.
+
+```
+Ctrl+S on a .rs / Cargo.toml / Cargo.lock in a Cargo project
+  → wait 200 ms (Save All starts one check)
+  → cargo check --workspace --message-format=json-diagnostic-short   (low priority, no colours, no progress)
+      ├─ errors/warnings → the same Problems collection as Cargo Run → red/yellow underline + Error Lens
+      └─ cargo stopped before checking (broken Cargo.toml, missing toolchain…) → old problems stay,
+         cargo's first `error:` line shows in the status bar for 10 s
+```
+
+| Topic | Decision | Why |
+| --- | --- | --- |
+| Command | `cargo check`, not `cargo build` | No code generation and no linking (linking an egui app is the slow part), so it is much lighter than a build. Dependencies are checked once (check artifacts sit next to the build's in `target/`), then each check redoes only the crates that changed |
+| Scope | `--workspace` (lib + bins of every member), no `--all-targets` | Changing a library also reports what breaks in the program that uses it. Tests/examples are skipped by default for speed; `atm.cargo.checkArgs: ["--all-targets"]` adds them. `-p` in checkArgs drops `--workspace` |
+| One per workspace | A save while a check runs: **warm** (a check finished here this session) and running < 10 s → cancel and restart; otherwise (**cold** first check, maybe checking every dependency, or a long one, e.g. after `cargo clean`) → let it finish, then check again | Restarting a short check loses little and gives the fresh result soonest. Restarting a long one on every save could keep dependency checking from ever finishing |
+| Cargo Run | Its build cancels the check; saves made *during* the build are checked after it. Cargo Run's own saves (Save All before building, restart-on-save) are never checked: `CargoController.coversSave()` | Its build reports the same errors, and two cargos on one `target/` only wait for each other |
+| Terminal | Shell integration (`onDidStart/EndTerminalShellExecution`, VS Code 1.93+): a command line containing `cargo` **cancels** the check when it starts and **requests** one when it ends. `--manifest-path` is followed | The terminal's text is **not** read: VS Code's `execution.read()` keeps a command's whole output in memory until it ends (a `cargo run` app logging for an hour), and rustc's human format would need a parser. A check after the command gives exact JSON positions. Cancelling at start keeps the user's command from waiting on our lock |
+| Problems | One `atm-cargo` collection; each report replaces only **its workspace's** problems (multi-root safe); files whose problems didn't change aren't touched | The latest of build / check / terminal wins; no duplicates, no needless redraws of Error Lens and the Problems panel |
+| Stop | Stop no longer clears the problems | They describe the code, which stopping doesn't change |
+| Message | The primary span's label is added as the 2nd line ("mismatched types" + "expected `u32`, found `&str`"), unless the message already says it | rustc's own short output adds it too; without it E0308 says only "mismatched types" |
+| Priority | `os.setPriority(BELOW_NORMAL)` on cargo; rustc inherits it | Typing stays smooth during a long first check. No `--jobs` cap: that would override the user's own `build.jobs` |
+| Progress | `withProgress(ProgressLocation.Window, "cargo check")`: a spinner in the status bar only while a check runs | A long first check is visible; costs nothing when idle |
+| Off | `atm.cargo.checkOnSave: false`; never in untrusted folders; never while the rust-analyzer **extension** is installed (it checks on save itself) | Light/off option on a 7 GB machine; no double underlines |
+
+Not done: an initial check when a project is opened (only saves and terminal commands trigger it), reading panics out of program output, a check on Cargo.toml changes made outside the editor.
+
 ## Which program runs
 
 Decided once per Run (`core/programs.ts` → `chooseProgram`), from `cargo metadata --no-deps` (cargo resolves globs, auto-bins and default-members itself):
@@ -60,24 +89,28 @@ Restart (Ctrl+G) always rebuilds the program that is already running, whatever f
 │   ├── metadata.ts        cargo metadata JSON → workspace, packages, programs
 │   ├── programs.ts        chooseProgram, parseRunArgs (▶ Run hand-off), buildArgs
 │   ├── buildOutput.ts     cargo's JSON lines → messages, artifacts, finished
-│   ├── problems.ts        rustc JSON diagnostics → Problems (macro spans mapped back to the call)
+│   ├── problems.ts        rustc JSON diagnostics → Problems (macro spans mapped back to the call), ProblemSink
+│   ├── check.ts           checkArgs, isCargoCommand / manifestPathIn (terminal), CargoFailure (the one line to show)
 │   ├── environment.ts     the env cargo run gives a program (CARGO_MANIFEST_DIR, library path…)
-│   ├── saveFilter.ts      which saves trigger restart-on-save
+│   ├── saveFilter.ts      affectsBuild: which saves start a check / restart-on-save
 │   ├── lineInput.ts       typing in the terminal: echo, Backspace, Enter, Ctrl+D
 │   └── paths.ts           path comparisons (case-insensitive on Windows)
 ├── host/
 │   ├── runner.ts          CargoRunner: the build → retire → launch state machine. No VS Code API (tests drive it)
-│   ├── build.ts           one `cargo build` run: output, diagnostics, executable
+│   ├── build.ts           one cargo run (`build`, or `check` in background mode): output, diagnostics, executable
+│   ├── checker.ts         CargoChecker: when the save check runs (warm/cold, Cargo Run, cancel). No VS Code API
+│   ├── checkController.ts VS Code glue for the check: saves, terminal commands, settings, trust, spinner
+│   ├── workspaces.ts      cargo metadata per project folder, cached until a Cargo.toml changes
 │   ├── processTree.ts     spawn as a process group; stop the whole tree (SIGTERM → SIGKILL / taskkill /T)
 │   ├── cargoTools.ts      cargo metadata, `rustc --print target-libdir` (both with RUSTUP_AUTO_INSTALL=0)
 │   ├── session.ts         request → RunSession (workspace, program, cargo); remembers the choice
 │   ├── projects.ts        nearest Cargo.toml for a file (cached per folder; reset when a Cargo.toml is added/removed)
-│   ├── controller.ts      VS Code glue: settings, saves, trust, context keys, save-before-run
+│   ├── controller.ts      VS Code glue: settings, saves, trust, context keys, save-before-run; BuildActivity for the check
 │   └── commands.ts        command registration + argument parsing (Uri from the title, Runnable from 32-rust)
 └── ui/
     ├── terminal.ts        CargoTerminal (RunnerView): the pseudoterminal
     ├── statusBar.ts       CargoStatusBar
-    ├── problems.ts        DiagnosticCollection `atm-cargo`
+    ├── problems.ts        DiagnosticCollection `atm-cargo`, per workspace, shared by Cargo Run and the check
     └── programPicker.ts   quick pick of programs
 ```
 
@@ -87,7 +120,7 @@ Restart (Ctrl+G) always rebuilds the program that is already running, whatever f
 
 - Commands: `atm.cargo.run`, `atm.cargo.stop`, `atm.cargo.cancelBuild`, `atm.cargo.toggle`, `atm.cargo.restart`, `atm.cargo.selectProgram`, `atm.cargo.showOutput`.
 - Context keys: `atm.cargo.project` (the active file is in a Cargo project; with no editor: something is running), `atm.cargo.running` (building or running), `atm.cargo.building` (a build is going: the title shows the spinner instead of ■).
-- Settings: `atm.cargo.enabled` (true), `atm.cargo.restartOnSave` (false), `atm.cargo.buildArgs` ([]), `atm.cargo.programArgs` ([]).
+- Settings: `atm.cargo.enabled` (true), `atm.cargo.restartOnSave` (false), `atm.cargo.buildArgs` ([]), `atm.cargo.programArgs` ([]), `atm.cargo.checkOnSave` (true), `atm.cargo.checkArgs` ([]).
 - Strings go through `vscode.l10n.t`. Like 32-rust, no translations were added to `l10n/bundle.l10n.*.json` yet.
 
 ## Gotchas handled
@@ -110,7 +143,12 @@ npx esbuild src/__test__/cargo.test.ts --bundle --platform=node --format=cjs --o
 npx mocha --ui tdd <scratch>/cargo.test.js
 ```
 
-19 tests: metadata, program choice (including the example-ide layout), ▶ Run args, build output parsing, problems, environment (Linux/Windows/macOS), save filter, line input, and one **real cargo** run (skipped without cargo): start → a broken build keeps the old process alive → a fixed build swaps in a new process → typed input reaches it → cancelling a rebuild leaves it running → Stop kills it.
+31 tests: metadata, program choice (including the example-ide layout), ▶ Run args, build output parsing, problems (with labels), environment (Linux/Windows/macOS), save filter, line input, the check's commands, **when the check runs** (fake checks: debounce, cold/warm, Cargo Run's build, terminal cancel, cargo failures), and two **real cargo** runs (skipped without cargo):
+
+- Cargo Run: start → a broken build keeps the old process alive → a fixed build swaps in a new process → typed input reaches it → cancelling a rebuild leaves it running → Stop kills it.
+- The check: a type error is reported at the right line/columns with its label → fixing it clears the problems.
+
+The VS Code glue (`checkController.ts`, `ui/problems.ts`) has no automated test; try it in F5.
 
 ## Ideas, not done
 
@@ -122,6 +160,6 @@ npx mocha --ui tdd <scratch>/cargo.test.js
 ## Working with this user
 
 - Say "**the rust-analyzer program** (part of Rust, not an extension)".
-- **Their PC has 7 GB of RAM**, usually with under 1 GB free while developing. Don't add background tools; Cargo Run runs nothing until the user presses Run.
+- **Their PC has 7 GB of RAM**, usually with under 1 GB free while developing. Cargo Run runs nothing until the user presses Run. The save check is the only background job, added at the user's request: `cargo check` only, low priority, one per workspace, off with `atm.cargo.checkOnSave`. Don't add more.
 - Never install or download anything without asking.
 - They appreciate notes on *why* things work the way they do (they are building their own IDE in Rust).

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { OFFICIAL_RUST_EXTENSION } from './core/officialExtension';
 import { EditorProjectFiles } from './host/projectFiles';
 import { BasicTypeHintsProvider } from './providers/basicHints';
 import { RustColorProvider } from './providers/colorPicker';
@@ -9,8 +10,8 @@ import { RustfmtFormatter } from './providers/rustfmt';
 import { RustTokenCache } from './providers/tokenCache';
 import { registerRustCommands } from './ui/commands';
 
-/** The official rust-analyzer extension. When it is installed, ATM's Rust support stays off. */
-export const OFFICIAL_RUST_EXTENSION = 'rust-lang.rust-analyzer';
+/** When the official rust-analyzer extension is installed, ATM's Rust support stays off. */
+export { OFFICIAL_RUST_EXTENSION };
 
 const RUST: vscode.DocumentSelector = { language: 'rust', scheme: 'file' };
 const SECTION = 'atm.rust';

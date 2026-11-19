@@ -5,7 +5,7 @@ import * as path from 'path';
 import { pickExecutable } from '../core/buildOutput';
 import { appEnvironment } from '../core/environment';
 import { CargoWorkspace } from '../core/metadata';
-import { collectProblems, Problem } from '../core/problems';
+import { collectProblems, ProblemSink } from '../core/problems';
 import { buildArgs, displayCommand, Selection } from '../core/programs';
 import { CargoBuild } from './build';
 import { spawnTree, stopTree, stopTreeNow } from './processTree';
@@ -51,11 +51,6 @@ export interface RunnerView {
 	stopped(): void;
 	/** Terminal width, for cargo's progress bar. */
 	readonly columns: number | undefined;
-}
-
-export interface ProblemSink {
-	set(problems: Problem[]): void;
-	clear(): void;
 }
 
 export interface RunnerSettings {
@@ -173,7 +168,11 @@ export class CargoRunner {
 		this.view.buildCancelled(this.program !== undefined);
 	}
 
-	/** Cancels the build and stops the program; also clears a failed or crashed state. */
+	/**
+	 * Cancels the build and stops the program; also clears a failed or
+	 * crashed state. The problems stay: they describe the code, which
+	 * stopping doesn't change, and the next build or save check replaces them.
+	 */
 	async stop(): Promise<void> {
 		this.generation++;
 		const { build, program } = this;
@@ -181,7 +180,6 @@ export class CargoRunner {
 		this.program = undefined;
 		this.buildFailed = false;
 		this.lastExit = undefined;
-		this.problems.clear();
 		this.notify();
 		if (build || program) {
 			await Promise.all([build?.cancel(), program && stopTree(program)]);
@@ -245,7 +243,7 @@ export class CargoRunner {
 			return;
 		}
 		this.build = undefined;
-		this.problems.set(collectProblems(result.messages, session.workspace.root));
+		this.problems.set(session.workspace.root, collectProblems(result.messages, session.workspace.root));
 
 		const executable = result.success ? pickExecutable(result.artifacts, session.selection.program) : undefined;
 		if (!executable) {
