@@ -24,7 +24,9 @@ import { CargoWorkspaces } from './workspaces';
  *   starts, a running check is cancelled so the command doesn't wait for it.
  *
  * The problems go to the same place as Cargo Run's, so Error Lens shows
- * them at the end of the line. The setting atm.cargo.checkOnSave turns it
+ * them at the end of the line. A running check shows nothing in the status
+ * bar; only a check that couldn't run says why, for a few seconds. The
+ * setting atm.cargo.checkOnSave turns it
  * off. It never runs in an untrusted folder (building runs the project's
  * build.rs and macros) or while the rust-analyzer extension is installed,
  * which checks on save itself.
@@ -38,8 +40,6 @@ export class CheckController implements vscode.Disposable {
 	private readonly workspaces = new CargoWorkspaces();
 	private readonly checker: CargoChecker;
 	private readonly disposables: vscode.Disposable[];
-	/** Ends the "cargo check" spinner in the status bar. */
-	private endProgress: (() => void) | undefined;
 	private failureMessage: vscode.Disposable | undefined;
 
 	constructor(
@@ -52,7 +52,8 @@ export class CheckController implements vscode.Disposable {
 			failed: (_root, message) => this.showFailure(message),
 		});
 		this.disposables = [
-			this.checker.onDidChange(() => this.renderProgress()),
+			// A new check makes an old "couldn't run" message out of date.
+			this.checker.onDidChange(() => this.checker.busy && this.failureMessage?.dispose()),
 			projects.onDidChange(() => this.workspaces.reset()),
 			vscode.workspace.onDidSaveTextDocument((document) => this.onSave(document)),
 			vscode.workspace.onDidChangeConfiguration((event) => {
@@ -138,18 +139,6 @@ export class CheckController implements vscode.Disposable {
 		}
 	}
 
-	/** A spinner with "cargo check" in the status bar while a check runs, so a long first check is visible. */
-	private renderProgress(): void {
-		if (this.checker.busy && !this.endProgress) {
-			this.failureMessage?.dispose();
-			const done = new Promise<void>((resolve) => (this.endProgress = resolve));
-			void vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'cargo check' }, () => done);
-		} else if (!this.checker.busy && this.endProgress) {
-			this.endProgress();
-			this.endProgress = undefined;
-		}
-	}
-
 	/** cargo's reason, briefly in the status bar: a check that couldn't run is worth knowing, not worth a popup on every save. */
 	private showFailure(message: string): void {
 		this.failureMessage?.dispose();
@@ -177,7 +166,6 @@ export class CheckController implements vscode.Disposable {
 
 	dispose(): void {
 		this.checker.dispose();
-		this.endProgress?.();
 		this.failureMessage?.dispose();
 		this.disposables.forEach((disposable) => disposable.dispose());
 	}

@@ -2,16 +2,16 @@ import * as vscode from 'vscode';
 import { RunnerPhase, RunnerState } from '../host/runner';
 
 /**
- * The Cargo Run item in the status bar. It shows up only while there is
- * something to say (building, running, failed) and hides when idle; the ▶
- * in the editor title is the way to start. A click does what Alt+G does:
- * stop when something runs, run again otherwise.
+ * The Cargo Run item in the status bar. It shows up only when something
+ * went wrong: the build failed (with or without the old program still
+ * running) or the program crashed. Building and running need no item: the
+ * spinner and ■ in the editor title already say so. A click does what
+ * Alt+G does: stop when something runs, run again otherwise.
  */
 
 const TOGGLE = 'atm.cargo.toggle';
 const RESTART = 'atm.cargo.restart';
 const STOP = 'atm.cargo.stop';
-const CANCEL_BUILD = 'atm.cargo.cancelBuild';
 const SHOW_OUTPUT = 'atm.cargo.showOutput';
 
 interface Look {
@@ -20,15 +20,8 @@ interface Look {
 	summary: (state: RunnerState) => string;
 }
 
-const LOOKS: Record<Exclude<RunnerPhase, 'idle'>, Look> = {
-	building: {
-		icon: 'sync~spin',
-		summary: (state) =>
-			state.programRunning
-				? vscode.l10n.t('Building… The program keeps running until the new build is ready.')
-				: vscode.l10n.t('Building…'),
-	},
-	running: { icon: 'debug-stop', summary: () => vscode.l10n.t('Running.') },
+/** The phases worth an item; every other phase hides it. */
+const LOOKS: Partial<Record<RunnerPhase, Look>> = {
 	stale: {
 		icon: 'warning',
 		background: 'statusBarItem.warningBackground',
@@ -54,11 +47,11 @@ export class CargoStatusBar implements vscode.Disposable {
 	}
 
 	render(state: RunnerState): void {
-		if (state.phase === 'idle' || !state.label) {
+		const look = LOOKS[state.phase];
+		if (!look || !state.label) {
 			this.item.hide();
 			return;
 		}
-		const look = LOOKS[state.phase];
 		this.item.text = `$(${look.icon}) ${state.label}`;
 		this.item.backgroundColor = look.background ? new vscode.ThemeColor(look.background) : undefined;
 		this.item.tooltip = tooltip(state, look.summary(state));
@@ -71,15 +64,12 @@ export class CargoStatusBar implements vscode.Disposable {
 }
 
 function tooltip(state: RunnerState, summary: string): vscode.MarkdownString {
-	const active = state.phase === 'building' || state.phase === 'running' || state.phase === 'stale';
 	const links = [
-		state.phase === 'building'
-			? `[$(close) ${vscode.l10n.t('Cancel build')}](command:${CANCEL_BUILD})`
-			: `[$(debug-restart) ${vscode.l10n.t('Restart')}](command:${RESTART} "Ctrl+G")`,
-		active ? `[$(debug-stop) ${vscode.l10n.t('Stop')}](command:${STOP} "Alt+G")` : undefined,
+		`[$(debug-restart) ${vscode.l10n.t('Restart')}](command:${RESTART} "Ctrl+G")`,
+		state.programRunning ? `[$(debug-stop) ${vscode.l10n.t('Stop')}](command:${STOP} "Alt+G")` : undefined,
 		`[$(terminal) ${vscode.l10n.t('Output')}](command:${SHOW_OUTPUT})`,
 	].filter((link) => link !== undefined);
 	const markdown = new vscode.MarkdownString(`**Cargo Run** · \`${state.label}\`\n\n${summary}\n\n${links.join(' · ')}`, true);
-	markdown.isTrusted = { enabledCommands: [RESTART, STOP, CANCEL_BUILD, SHOW_OUTPUT] };
+	markdown.isTrusted = { enabledCommands: [RESTART, STOP, SHOW_OUTPUT] };
 	return markdown;
 }

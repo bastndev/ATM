@@ -1385,7 +1385,7 @@
         {
           "command": "atm.ira.open",
           "group": "navigation@-1",
-          "when": "activeEditor != 'workbench.editor.extension' && resourceExtname != .md && resourceExtname != .json && !atm.ira.active"
+          "when": "activeEditor != 'workbench.editor.extension' && resourceExtname != .md && resourceExtname != .json && resourceExtname != .rs && !atm.ira.active"
         },
         {
           "command": "atm.translate-doc.translateExtension",

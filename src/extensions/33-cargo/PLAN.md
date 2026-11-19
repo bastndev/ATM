@@ -30,7 +30,7 @@ It starts the executable itself (not `cargo run`) because `cargo run` would have
 | Keys | **Alt+G** run/stop (toggle), **Ctrl+G** restart, Ctrl+Alt+G stop | Same keys as Run Dev (JS), so there's one habit to learn |
 | Key conflict with Run Dev | Keys follow the **active file**: inside a Cargo project → Cargo Run, otherwise → Run Dev (`!atm.cargo.project` added to Run Dev's keybindings) | In a Tauri project, a `.rs` file runs Cargo, a `.ts` file runs the dev server |
 | Restart on save | Setting `atm.cargo.restartOnSave`, **off** by default | Saving halfway through a change shouldn't close the window, and on a 7 GB machine a build on every Ctrl+S adds up. Ctrl+G is the main way |
-| Status bar | Its own item (left, priority 39, after Go Live). **Hidden when idle**; shows building / running / failed. Click = Alt+G | The ▶ in the title is how you start; the status bar reports state and lets you stop from any file |
+| Status bar | Its own item (left, priority 39, after Go Live). Shows **only on trouble**: build failed (red; orange while the old program still runs) or the program crashed. Hidden while idle, building or running. Click = Alt+G | The user asked: the editor title's spinner and ■ already show building/running, so the item would only repeat them |
 | Terminal | One "Cargo Run" pseudoterminal, **cleared at every build** | The errors on screen are always the latest ones |
 | Program cwd | The **workspace root** (where Cargo.lock is) | Same as typing `cargo run` there, so `assets/` paths work |
 | Official rust-analyzer extension | Cargo Run works with or without it | It doesn't need rust-analyzer. Only the ▶ Run above `main()` (32-rust) is off while that extension is installed |
@@ -61,7 +61,7 @@ Ctrl+S on a .rs / Cargo.toml / Cargo.lock in a Cargo project
 | Stop | Stop no longer clears the problems | They describe the code, which stopping doesn't change |
 | Message | The primary span's label is added as the 2nd line ("mismatched types" + "expected `u32`, found `&str`"), unless the message already says it | rustc's own short output adds it too; without it E0308 says only "mismatched types" |
 | Priority | `os.setPriority(BELOW_NORMAL)` on cargo; rustc inherits it | Typing stays smooth during a long first check. No `--jobs` cap: that would override the user's own `build.jobs` |
-| Progress | `withProgress(ProgressLocation.Window, "cargo check")`: a spinner in the status bar only while a check runs | A long first check is visible; costs nothing when idle |
+| Status bar | Nothing while a check runs (the user asked; no spinner, no text). Only a check that couldn't run shows cargo's reason for 10 s | The underlines are the result; a busy indicator was noise |
 | Off | `atm.cargo.checkOnSave: false`; never in untrusted folders; never while the rust-analyzer **extension** is installed (it checks on save itself) | Light/off option on a 7 GB machine; no double underlines |
 
 Not done: an initial check when a project is opened (only saves and terminal commands trigger it), reading panics out of program output, a check on Cargo.toml changes made outside the editor.
