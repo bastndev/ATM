@@ -60,6 +60,11 @@ export class CargoTerminal implements RunnerView, vscode.Disposable {
 		this.write(text);
 	}
 
+	buildCancelled(programRunning: boolean): void {
+		const text = programRunning ? vscode.l10n.t('Build cancelled. The program keeps running.') : vscode.l10n.t('Build cancelled.');
+		this.write(`\n${dim(text)}\n`, false);
+	}
+
 	buildFailed(oldProgramRunning: boolean, built: boolean): void {
 		const message = built
 			? red(vscode.l10n.t('The build worked but produced no program to start.'))

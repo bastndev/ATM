@@ -362,6 +362,14 @@
         }
       },
       {
+        "command": "atm.cargo.cancelBuild",
+        "title": "ATM: Cargo Cancel Build (the running program keeps running)",
+        "icon": {
+          "light": "src/extensions/33-cargo/assets/svg/building-light.svg",
+          "dark": "src/extensions/33-cargo/assets/svg/building-dark.svg"
+        }
+      },
+      {
         "command": "atm.cargo.toggle",
         "title": "ATM: Cargo Run / Stop"
       },
@@ -1298,6 +1306,10 @@
           "when": "atm.cargo.running"
         },
         {
+          "command": "atm.cargo.cancelBuild",
+          "when": "atm.cargo.building"
+        },
+        {
           "command": "atm.cargo.showOutput",
           "when": "config.atm.cargo.enabled"
         }
@@ -1343,9 +1355,14 @@
           "when": "atm.cargo.project && !atm.cargo.running && (resourceExtname == .rs || resourceExtname == .toml || resourceFilename == Cargo.lock || resourceFilename == rust-toolchain)"
         },
         {
+          "command": "atm.cargo.cancelBuild",
+          "group": "navigation@-2",
+          "when": "atm.cargo.project && atm.cargo.building && (resourceExtname == .rs || resourceExtname == .toml || resourceFilename == Cargo.lock || resourceFilename == rust-toolchain)"
+        },
+        {
           "command": "atm.cargo.stop",
           "group": "navigation@-2",
-          "when": "atm.cargo.project && atm.cargo.running && (resourceExtname == .rs || resourceExtname == .toml || resourceFilename == Cargo.lock || resourceFilename == rust-toolchain)"
+          "when": "atm.cargo.project && atm.cargo.running && !atm.cargo.building && (resourceExtname == .rs || resourceExtname == .toml || resourceFilename == Cargo.lock || resourceFilename == rust-toolchain)"
         },
         {
           "command": "atm.ira.open",

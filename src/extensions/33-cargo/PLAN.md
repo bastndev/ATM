@@ -23,7 +23,9 @@ It starts the executable itself (not `cargo run`) because `cargo run` would have
 
 | Topic | Decision | Why |
 | --- | --- | --- |
-| Buttons | ▶ / ■ in the **editor title**, left of the ATM ghost (`navigation@-2`). Green play and red stop SVGs in `assets/svg/` (VS Code's debug colours, light + dark) | The user's request; menu codicons can't be coloured. A **stop** square, not pause: it ends the program and can't be resumed |
+| Buttons | **editor title**, left of the ATM ghost (`navigation@-2`): green ▶ when idle, green spinning squares while building, red ■ while the program runs. SVGs in `assets/svg/` (VS Code's debug colours, light + dark) | The user's request; menu codicons can't be coloured. A **stop** square, not pause: it ends the program and can't be resumed |
+| Spinner | 8 small squares fading like a comet tail, turned in 8 **discrete** 45° steps by SMIL (`calcMode="discrete"`, 0.8 s) | About 10 repaints a second, nothing interpolated, so it costs almost nothing. Green = "on its way to ▶" |
+| Clicking the spinner | Cancels **only the build** (`atm.cargo.cancelBuild`); a running program keeps running. Alt+G still stops everything | You see the spinner while refreshing; cancelling a refresh shouldn't close your app |
 | Where ▶ shows | `.rs`, any `.toml`, `Cargo.lock`, `rust-toolchain`, and only when the file is inside a Cargo project (`atm.cargo.project`) | The user's request: only Rust/Cargo files |
 | Keys | **Alt+G** run/stop (toggle), **Ctrl+G** restart, Ctrl+Alt+G stop | Same keys as Run Dev (JS), so there's one habit to learn |
 | Key conflict with Run Dev | Keys follow the **active file**: inside a Cargo project → Cargo Run, otherwise → Run Dev (`!atm.cargo.project` added to Run Dev's keybindings) | In a Tauri project, a `.rs` file runs Cargo, a `.ts` file runs the dev server |
@@ -83,8 +85,8 @@ Restart (Ctrl+G) always rebuilds the program that is already running, whatever f
 
 ## Contributions
 
-- Commands: `atm.cargo.run`, `atm.cargo.stop`, `atm.cargo.toggle`, `atm.cargo.restart`, `atm.cargo.selectProgram`, `atm.cargo.showOutput`.
-- Context keys: `atm.cargo.project` (the active file is in a Cargo project; with no editor: something is running), `atm.cargo.running` (building or running).
+- Commands: `atm.cargo.run`, `atm.cargo.stop`, `atm.cargo.cancelBuild`, `atm.cargo.toggle`, `atm.cargo.restart`, `atm.cargo.selectProgram`, `atm.cargo.showOutput`.
+- Context keys: `atm.cargo.project` (the active file is in a Cargo project; with no editor: something is running), `atm.cargo.running` (building or running), `atm.cargo.building` (a build is going: the title shows the spinner instead of ■).
 - Settings: `atm.cargo.enabled` (true), `atm.cargo.restartOnSave` (false), `atm.cargo.buildArgs` ([]), `atm.cargo.programArgs` ([]).
 - Strings go through `vscode.l10n.t`. Like 32-rust, no translations were added to `l10n/bundle.l10n.*.json` yet.
 
@@ -108,7 +110,7 @@ npx esbuild src/__test__/cargo.test.ts --bundle --platform=node --format=cjs --o
 npx mocha --ui tdd <scratch>/cargo.test.js
 ```
 
-19 tests: metadata, program choice (including the example-ide layout), ▶ Run args, build output parsing, problems, environment (Linux/Windows/macOS), save filter, line input, and one **real cargo** run (skipped without cargo): start → a broken build keeps the old process alive → a fixed build swaps in a new process → typed input reaches it → Stop kills it.
+19 tests: metadata, program choice (including the example-ide layout), ▶ Run args, build output parsing, problems, environment (Linux/Windows/macOS), save filter, line input, and one **real cargo** run (skipped without cargo): start → a broken build keeps the old process alive → a fixed build swaps in a new process → typed input reaches it → cancelling a rebuild leaves it running → Stop kills it.
 
 ## Ideas, not done
 

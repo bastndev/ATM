@@ -14,6 +14,7 @@ export function registerCargoCommands(controller: CargoController): vscode.Dispo
 		vscode.commands.registerCommand('atm.cargo.toggle', () => controller.toggle()),
 		vscode.commands.registerCommand('atm.cargo.restart', () => controller.restart()),
 		vscode.commands.registerCommand('atm.cargo.stop', () => controller.stop()),
+		vscode.commands.registerCommand('atm.cargo.cancelBuild', () => controller.cancelBuild()),
 		vscode.commands.registerCommand('atm.cargo.showOutput', () => controller.showOutput()),
 	];
 }

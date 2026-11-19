@@ -16,11 +16,14 @@ import { SessionRequest, SessionResolver } from './session';
  *   file open: a program is running). The keys and the ▶ follow it, so in a
  *   Tauri project Alt+G runs Cargo from a .rs file and Run Dev from a .ts one.
  * - `atm.cargo.running`: a build or a program is running; the ▶ becomes ■.
+ * - `atm.cargo.building`: a build is going; the ■ becomes the spinning
+ *   squares, and a click cancels only the build.
  */
 
 const SECTION = 'atm.cargo';
 const CONTEXT_PROJECT = 'atm.cargo.project';
 const CONTEXT_RUNNING = 'atm.cargo.running';
+const CONTEXT_BUILDING = 'atm.cargo.building';
 /** Saving several files at once (Save All) restarts once. */
 const SAVE_DEBOUNCE_MS = 300;
 
@@ -108,6 +111,12 @@ export class CargoController implements vscode.Disposable {
 		await this.runner.stop();
 	}
 
+	/** The spinner in the editor title: stop building, keep the program that runs. */
+	async cancelBuild(): Promise<void> {
+		clearTimeout(this.saveTimer);
+		await this.runner.cancelBuild();
+	}
+
 	showOutput(): void {
 		this.terminal.show(false);
 	}
@@ -173,6 +182,7 @@ export class CargoController implements vscode.Disposable {
 	private render(): void {
 		this.statusBar.render(this.runner.state);
 		this.setContext(CONTEXT_RUNNING, this.runner.active);
+		this.setContext(CONTEXT_BUILDING, this.runner.state.phase === 'building');
 		void this.updateProjectContext();
 	}
 

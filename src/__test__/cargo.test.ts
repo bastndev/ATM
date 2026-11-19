@@ -125,6 +125,9 @@ class RecordingView implements RunnerView {
 	output(text: string): void {
 		this.text += text;
 	}
+	buildCancelled(programRunning: boolean): void {
+		this.events.push(`cancelled running=${programRunning}`);
+	}
 	buildFailed(oldProgramRunning: boolean, built: boolean): void {
 		this.events.push(`failed old=${oldProgramRunning} built=${built}`);
 	}
@@ -412,6 +415,18 @@ suite('Cargo Run Test Suite', () => {
 			assert.strictEqual(runner.state.phase, 'running');
 			assert.deepStrictEqual(problems.last, []);
 			assert.ok(!view.events.some((event) => event.startsWith('exited')), 'a replaced program is not reported as exited');
+
+			// Cancelling a rebuild stops cargo only; version 2 keeps running.
+			writeMain(project, 3);
+			const restarting = runner.restart();
+			await waitUntil(() => runner?.state.phase === 'building');
+			await runner.cancelBuild();
+			await restarting;
+			assert.strictEqual(runner.state.phase, 'running');
+			assert.ok(isAlive(secondPid), 'cancelling a build must not stop the program');
+			assert.ok(view.events.includes('cancelled running=true'));
+			assert.ok(!view.text.includes('ready 3'));
+			writeMain(project, 2);
 
 			// Typing a line reaches the program, which then exits normally.
 			assert.ok(runner.write('bye\n'));

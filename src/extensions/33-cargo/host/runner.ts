@@ -41,6 +41,8 @@ export interface RunSession {
 export interface RunnerView {
 	buildStarted(command: string): void;
 	output(text: string): void;
+	/** The user cancelled the build; a program that was running keeps running. */
+	buildCancelled(programRunning: boolean): void;
 	/** No new program: the build failed, or it worked but produced no executable. */
 	buildFailed(oldProgramRunning: boolean, built: boolean): void;
 	programStarted(executable: string): void;
@@ -156,6 +158,19 @@ export class CargoRunner {
 		if (this.sessionValue) {
 			await this.rebuild();
 		}
+	}
+
+	/** Cancels only the build: a program that is running keeps running, as if Restart was never pressed. */
+	async cancelBuild(): Promise<void> {
+		const build = this.build;
+		if (!build) {
+			return;
+		}
+		this.generation++;
+		this.build = undefined;
+		this.notify();
+		await build.cancel();
+		this.view.buildCancelled(this.program !== undefined);
 	}
 
 	/** Cancels the build and stops the program; also clears a failed or crashed state. */

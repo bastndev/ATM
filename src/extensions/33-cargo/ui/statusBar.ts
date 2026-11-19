@@ -11,6 +11,7 @@ import { RunnerPhase, RunnerState } from '../host/runner';
 const TOGGLE = 'atm.cargo.toggle';
 const RESTART = 'atm.cargo.restart';
 const STOP = 'atm.cargo.stop';
+const CANCEL_BUILD = 'atm.cargo.cancelBuild';
 const SHOW_OUTPUT = 'atm.cargo.showOutput';
 
 interface Look {
@@ -72,11 +73,13 @@ export class CargoStatusBar implements vscode.Disposable {
 function tooltip(state: RunnerState, summary: string): vscode.MarkdownString {
 	const active = state.phase === 'building' || state.phase === 'running' || state.phase === 'stale';
 	const links = [
-		`[$(debug-restart) ${vscode.l10n.t('Restart')}](command:${RESTART} "Ctrl+G")`,
+		state.phase === 'building'
+			? `[$(close) ${vscode.l10n.t('Cancel build')}](command:${CANCEL_BUILD})`
+			: `[$(debug-restart) ${vscode.l10n.t('Restart')}](command:${RESTART} "Ctrl+G")`,
 		active ? `[$(debug-stop) ${vscode.l10n.t('Stop')}](command:${STOP} "Alt+G")` : undefined,
 		`[$(terminal) ${vscode.l10n.t('Output')}](command:${SHOW_OUTPUT})`,
 	].filter((link) => link !== undefined);
 	const markdown = new vscode.MarkdownString(`**Cargo Run** · \`${state.label}\`\n\n${summary}\n\n${links.join(' · ')}`, true);
-	markdown.isTrusted = { enabledCommands: [RESTART, STOP, SHOW_OUTPUT] };
+	markdown.isTrusted = { enabledCommands: [RESTART, STOP, CANCEL_BUILD, SHOW_OUTPUT] };
 	return markdown;
 }
