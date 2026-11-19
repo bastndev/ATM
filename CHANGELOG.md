@@ -44,6 +44,7 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
   - Type into the terminal to send input to the app; `Ctrl+C` or closing the terminal stops it.
   - The ▶ Run button above `fn main()` uses Cargo Run too. In a Tauri project, the keys run Cargo from a `.rs` file and Run Dev from a `.ts` file.
   - Settings: `atm.cargo.enabled`, `atm.cargo.restartOnSave` (off by default), `atm.cargo.buildArgs`, `atm.cargo.programArgs`. Only in trusted folders; never downloads a Rust toolchain on its own.
+  - Error lens add to rust
 
 ---
 
