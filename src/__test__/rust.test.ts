@@ -426,7 +426,7 @@ suite('Rust Test Suite', () => {
 			const settings = contributes.configuration.properties;
 			assert.deepStrictEqual(
 				Object.keys(settings).filter((key) => key.startsWith('atm.rust.')),
-				['atm.rust.enabled', 'atm.rust.inlayHints.typeHints', 'atm.rust.runButtons'],
+				['atm.rust.enabled', 'atm.rust.inlayHints.typeHints', 'atm.rust.runButtons', 'atm.rust.colorPicker'],
 				'no settings are left over from the rust-analyzer connection',
 			);
 			assert.ok(!contributes.commands.some((command: { command: string }) => command.command.startsWith('atm.rust.')));

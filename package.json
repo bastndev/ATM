@@ -1007,7 +1007,7 @@
         "atm.rust.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "Turn on ATM's Rust support: type hints, the underline on mut variables, ▶ Run / Run Test buttons, rustfmt and Cargo tasks. It reads only the open file and its Cargo.toml and starts no background program. It stays off while the rust-analyzer extension is installed."
+          "description": "Turn on ATM's Rust support: type hints, the underline on mut variables, ▶ Run / Run Test buttons, rustfmt, Cargo tasks and the colour picker. It reads only the open file and its Cargo.toml and starts no background program. It stays off while the rust-analyzer extension is installed, except the colour picker."
         },
         "atm.rust.inlayHints.typeHints": {
           "type": "boolean",
@@ -1018,6 +1018,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show ▶ Run above fn main() and ▶ Run Test / Run Tests above tests. A click runs cargo for that program or test only. Only in trusted folders."
+        },
+        "atm.rust.colorPicker": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a colour square before Rust colours and open the colour picker on click, as in CSS: egui (Color32::from_rgb, constants like Color32::RED), gpui (rgb(0x…), hsla), iced, Bevy, Slint, macroquad, ratatui, crossterm, sdl2, palette, plotters, image and \"#hex\" or CSS colours in strings. The picker writes the new colour back in the same format and number style. Unlike the rest of ATM's Rust support, it also works while the rust-analyzer extension is installed, since that has no colour picker."
         },
         "atm.cargo.enabled": {
           "type": "boolean",

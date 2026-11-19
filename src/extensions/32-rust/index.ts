@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { EditorProjectFiles } from './host/projectFiles';
 import { BasicTypeHintsProvider } from './providers/basicHints';
+import { RustColorProvider } from './providers/colorPicker';
 import { CARGO_TASK_TYPE, CargoTaskProvider } from './providers/cargoTasks';
 import { MutUnderline } from './providers/mutUnderline';
 import { RunLensProvider } from './providers/runLens';
@@ -16,8 +17,9 @@ const SECTION = 'atm.rust';
 
 /**
  * Rust support written in ATM itself: type hints for values whose type is
- * obvious, the `mut` underline, ▶ Run / Run Test buttons, rustfmt and Cargo
- * tasks. It reads only the open file and its Cargo.toml, never indexes the
+ * obvious, the `mut` underline, ▶ Run / Run Test buttons, rustfmt, Cargo
+ * tasks and a colour picker for egui, gpui, iced, Bevy and other GUI
+ * libraries. It reads only the open file and its Cargo.toml, never indexes the
  * project and starts no background program, so it stays light on any
  * machine.
  */
@@ -51,9 +53,12 @@ class RustController implements vscode.Disposable {
 	/** Turns the features on or off to match the settings, workspace trust and installed extensions. */
 	private update(): void {
 		const config = vscode.workspace.getConfiguration(SECTION);
-		const active = config.get<boolean>('enabled', true) && !vscode.extensions.getExtension(OFFICIAL_RUST_EXTENSION);
+		const enabled = config.get<boolean>('enabled', true);
+		const active = enabled && !vscode.extensions.getExtension(OFFICIAL_RUST_EXTENSION);
 		const state = {
 			active,
+			// rust-analyzer has no colour picker, so this one stays on next to the official extension.
+			colorPicker: enabled && config.get<boolean>('colorPicker', true),
 			typeHints: active && config.get<boolean>('inlayHints.typeHints', true),
 			runButtons: active && config.get<boolean>('runButtons', true),
 			// rustfmt and cargo may run code from the project (rust-toolchain.toml, build.rs).
@@ -65,6 +70,9 @@ class RustController implements vscode.Disposable {
 		}
 		this.builtFor = key;
 		this.disposeFeatures();
+		if (state.colorPicker) {
+			this.features.push(vscode.languages.registerColorProvider(RUST, new RustColorProvider(this.tokens)));
+		}
 		if (!state.active) {
 			return;
 		}
