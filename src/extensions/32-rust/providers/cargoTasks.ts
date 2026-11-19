@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { findTool } from '../host/toolchain';
+import { NO_AUTO_INSTALL } from '../core/rustup';
+import { findTool, toolCommand } from '../host/toolchain';
 
 export const CARGO_TASK_TYPE = 'atm-cargo';
 export const RUSTC_PROBLEM_MATCHER = '$atm-rustc';
@@ -67,10 +68,10 @@ export class CargoTaskProvider implements vscode.TaskProvider {
 
 async function createCargoTask(definition: CargoTaskDefinition, folder: vscode.WorkspaceFolder, name: string): Promise<vscode.Task> {
 	const cwd = definition.cwd ? path.resolve(folder.uri.fsPath, definition.cwd) : folder.uri.fsPath;
-	const cargo = (await findTool('cargo', cwd)) ?? 'cargo';
+	const cargo = (await findTool('cargo', cwd)) ?? toolCommand('cargo');
 	const execution = new vscode.ProcessExecution(cargo, [definition.command, ...(definition.args ?? [])], {
 		cwd,
-		env: definition.env,
+		env: { ...NO_AUTO_INSTALL, ...definition.env },
 	});
 	return new vscode.Task(definition, folder, name, TASK_SOURCE, execution, RUSTC_PROBLEM_MATCHER);
 }

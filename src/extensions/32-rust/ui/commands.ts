@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { isRunnable, runnableToProcess } from '../core/runnables';
-import { findTool } from '../host/toolchain';
+import { findTool, toolCommand } from '../host/toolchain';
 import { CARGO_TASK_TYPE, RUST_PANIC_PROBLEM_MATCHER, RUSTC_PROBLEM_MATCHER } from '../providers/cargoTasks';
 import { RUN_COMMAND } from '../providers/runLens';
 import { openRunTerminal } from './runTerminal';
@@ -31,7 +31,7 @@ async function run(runnable: unknown): Promise<void> {
 	if (!isRunnable(runnable) || !vscode.workspace.isTrusted) {
 		return;
 	}
-	const cargo = (await findTool('cargo', runnable.cwd)) ?? 'cargo';
+	const cargo = (await findTool('cargo', runnable.cwd)) ?? toolCommand('cargo');
 	const spec = runnableToProcess(runnable, cargo);
 	const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(spec.cwd));
 

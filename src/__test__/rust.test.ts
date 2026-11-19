@@ -413,32 +413,28 @@ suite('Rust Test Suite', () => {
 				command: '/home/me/.cargo/bin/cargo',
 				args: ['test', '--lib', '--', 'tests::adds', '--exact'],
 				cwd: '/work/app',
-				env: { RUST_BACKTRACE: 'short' },
+				env: { RUST_BACKTRACE: 'short', RUSTUP_AUTO_INSTALL: '0' },
 			});
 		});
 	});
 
 	suite('package.json', () => {
-		test('declares the Rust settings, tasks, error matchers and the mut underline', () => {
+		test('declares the Rust settings, tasks and error matchers', () => {
 			const extension = vscode.extensions.getExtension(extensionId);
 			assert.ok(extension, 'ATM is installed in the test host');
 			const contributes = extension.packageJSON.contributes;
 			const settings = contributes.configuration.properties;
-			for (const key of [
-				'atm.rust.enabled',
-				'atm.rust.serverPath',
-				'atm.rust.checkOnSave.command',
-				'atm.rust.inlayHints.typeHints',
-				'atm.rust.inlayHints.parameterHints',
-			]) {
-				assert.ok(settings[key], `${key} is declared`);
-			}
-			assert.strictEqual(settings['atm.rust.serverPath'].scope, 'machine', 'a workspace cannot pick the program to run');
+			assert.deepStrictEqual(
+				Object.keys(settings).filter((key) => key.startsWith('atm.rust.')),
+				['atm.rust.enabled', 'atm.rust.inlayHints.typeHints', 'atm.rust.runButtons'],
+				'no settings are left over from the rust-analyzer connection',
+			);
+			assert.ok(!contributes.commands.some((command: { command: string }) => command.command.startsWith('atm.rust.')));
 			assert.ok(contributes.taskDefinitions.some((definition: { type: string }) => definition.type === 'atm-cargo'));
-			assert.ok(contributes.problemMatchers.some((matcher: { name: string }) => matcher.name === 'atm-rustc'));
-			assert.ok(contributes.problemPatterns.some((pattern: { name: string }) => pattern.name === 'atm-rustc'));
-			const rustScopes = contributes.semanticTokenScopes.find((entry: { language: string }) => entry.language === 'rust');
-			assert.deepStrictEqual(rustScopes.scopes['*.mutable'], ['markup.underline']);
+			for (const name of ['atm-rustc', 'atm-rust-panic']) {
+				assert.ok(contributes.problemMatchers.some((matcher: { name: string }) => matcher.name === name), `${name} matcher`);
+				assert.ok(contributes.problemPatterns.some((pattern: { name: string }) => pattern.name === name), `${name} pattern`);
+			}
 			assert.strictEqual(contributes.configurationDefaults['[rust]']['editor.formatOnSave'], true);
 			// Antigravity hides inlay hints by default (offUnlessPressed); Rust files show them.
 			assert.strictEqual(contributes.configurationDefaults['[rust]']['editor.inlayHints.enabled'], 'on');
@@ -457,7 +453,6 @@ suite('Rust Test Suite', () => {
 		});
 
 		suiteTeardown(async () => {
-			await vscode.workspace.getConfiguration('atm.rust').update('serverPath', undefined, vscode.ConfigurationTarget.Global);
 			await vscode.commands.executeCommand('workbench.action.closeAllEditors');
 			fs.rmSync(folder, { recursive: true, force: true });
 		});
@@ -485,96 +480,62 @@ suite('Rust Test Suite', () => {
 			await vscode.commands.executeCommand('workbench.action.files.revert');
 		});
 
-		test('shows exact types from rust-analyzer when ATM_RUST_SERVER points to it', async function () {
-			const server = process.env.ATM_RUST_SERVER;
-			if (!server) {
-				this.skip();
+		test('registers the Run command and nothing from rust-analyzer', async () => {
+			await vscode.extensions.getExtension(extensionId)?.activate();
+			const commands = await vscode.commands.getCommands(true);
+			assert.ok(commands.includes('atm.rust.run'));
+			for (const id of ['atm.rust.runSingle', 'atm.rust.restartServer', 'atm.rust.installServer', 'atm.rust.openDocs']) {
+				assert.ok(!commands.includes(id), `${id} is gone`);
 			}
-			this.timeout(240_000);
+		});
+
+		test('shows Run buttons, and ▶ Run Test runs that test with cargo', async function () {
+			this.timeout(180_000);
+			await vscode.extensions.getExtension(extensionId)?.activate();
 			fs.writeFileSync(
 				file,
 				[
-					'fn make() -> Vec<u16> { Vec::new() }', // 0
-					'fn area(width: u32, height: u32) -> u32 { width * height }', // 1
-					'fn main() {', // 2
-					'    let made = make();', // 3
-					'    let mut count = 6.5;', // 4
-					'    count += 1.0;', // 5
-					'    area(800, 600);', // 6
-					'}', // 7
-					'#[test]', // 8
-					'fn adds() { assert_eq!(area(2, 3), 6); std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/ran.txt"), "ok").unwrap(); }', // 9
+					'fn main() {', // 0
+					'    println!("hi");', // 1
+					'}', // 2
+					'', // 3
+					'#[cfg(test)]', // 4
+					'mod tests {', // 5
+					'    #[test]', // 6
+					'    fn writes_file() {', // 7
+					'        std::fs::write(concat!(env!("CARGO_MANIFEST_DIR"), "/ran.txt"), "ok").unwrap();', // 8
+					'    }', // 9
+					'}', // 10
 					'',
 				].join('\n'),
 			);
-			await vscode.workspace.getConfiguration('atm.rust').update('serverPath', server, vscode.ConfigurationTarget.Global);
 			const document = await vscode.workspace.openTextDocument(file);
 			await vscode.window.showTextDocument(document);
-			const labels = await waitFor(async () => {
-				const hints = await vscode.commands.executeCommand<vscode.InlayHint[]>(
-					'vscode.executeInlayHintProvider',
-					document.uri,
-					document.validateRange(new vscode.Range(0, 0, document.lineCount, 0)),
-				);
-				const text = (hints ?? []).map((hint) =>
-					typeof hint.label === 'string' ? hint.label : hint.label.map((part) => part.value).join(''),
-				);
-				return text.some((label) => label.includes('Vec<u16>')) && text.some((label) => label.includes('width')) ? text : undefined;
-			}, 110_000);
-			assert.ok(labels, 'rust-analyzer sent the type of make() and the parameter names');
-			assert.strictEqual(
-				labels.filter((label) => label.includes('f64')).length,
-				1,
-				'the simple type guesses are off while rust-analyzer runs, so `count` has one hint',
+			const lenses = await waitFor(async () => {
+				const all = await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', document.uri, 10);
+				const run = (all ?? []).filter((lens) => lens.command?.command === 'atm.rust.run');
+				return run.length === 3 ? run : undefined;
+			}, 15_000);
+			assert.ok(lenses, 'three Run buttons');
+			assert.deepStrictEqual(
+				lenses.map((lens) => `${lens.range.start.line} ${lens.command?.title}`).sort(),
+				['0 ▶︎ Run', '5 ▶︎ Run Tests', '7 ▶︎ Run Test'],
 			);
+			const runMain = lenses.find((lens) => lens.range.start.line === 0);
+			assert.deepStrictEqual(runMain?.command?.arguments?.[0].cargoArgs, ['run', '--package', 'demo', '--bin', 'demo']);
+			assert.strictEqual(runMain?.command?.tooltip, 'cargo run --package demo --bin demo');
 
-			// ▶ Run above main() and ▶ Run Test above the test, answered by ATM's command.
-			const lenses = await vscode.commands.executeCommand<vscode.CodeLens[]>('vscode.executeCodeLensProvider', document.uri, 10);
-			const runLenses = (lenses ?? []).filter((lens) => lens.command?.command === 'atm.rust.runSingle');
-			assert.ok(runLenses.some((lens) => lens.range.start.line === 2), 'Run button above main()');
-			assert.ok(runLenses.some((lens) => lens.range.start.line === 9), 'Run Test button above the test');
-			assert.ok(!(lenses ?? []).some((lens) => lens.command?.command.startsWith('rust-analyzer.')), 'no rust-analyzer.* command is left');
-
-			// Hover and Ctrl+click.
-			const hovers = await vscode.commands.executeCommand<vscode.Hover[]>('vscode.executeHoverProvider', document.uri, new vscode.Position(3, 16));
-			const hoverText = (hovers ?? [])
-				.flatMap((hover) => hover.contents)
-				.map((content) => (typeof content === 'string' ? content : content.value))
-				.join('\n');
-			assert.ok(hoverText.includes('fn make() -> Vec<u16>'), 'hover shows the signature');
-			const definitions = await vscode.commands.executeCommand<Array<vscode.Location | vscode.LocationLink>>(
-				'vscode.executeDefinitionProvider',
-				document.uri,
-				new vscode.Position(3, 16),
-			);
-			const target = definitions?.[0];
-			const targetRange = target && 'targetRange' in target ? target.targetRange : target?.range;
-			assert.strictEqual(targetRange?.start.line, 0, 'Ctrl+click on make() jumps to its definition');
-
-			// The `mut` underline comes from the `mutable` semantic modifier.
-			const legend = await vscode.commands.executeCommand<vscode.SemanticTokensLegend>('vscode.provideDocumentSemanticTokensLegend', document.uri);
-			const tokens = await vscode.commands.executeCommand<vscode.SemanticTokens>('vscode.provideDocumentSemanticTokens', document.uri);
-			const mutableBit = legend ? legend.tokenModifiers.indexOf('mutable') : -1;
-			assert.ok(mutableBit >= 0, 'rust-analyzer marks mutable variables');
-			const mutableLines = new Set<number>();
-			let line = 0;
-			for (let i = 0; tokens && i < tokens.data.length; i += 5) {
-				line += tokens.data[i];
-				if (tokens.data[i + 4] & (1 << mutableBit)) {
-					mutableLines.add(line);
-				}
+			if (!(await findTool('cargo', folder))) {
+				this.skip();
 			}
-			assert.ok(mutableLines.has(4) && mutableLines.has(5), '`count` is mutable where it is declared and used');
-
-			// Clicking ▶ Run Test runs `cargo test` for that test and it passes. With no folder
-			// open (as in this test window) it runs in a terminal instead of a task.
-			const runTest = runLenses.find((lens) => lens.range.start.line === 9);
+			// No folder is open in this test window, so the test runs in a terminal instead of a task.
+			const runTest = lenses.find((lens) => lens.range.start.line === 7);
 			assert.ok(runTest?.command);
 			await vscode.commands.executeCommand(runTest.command.command, ...(runTest.command.arguments ?? []));
-			const ran = await waitFor(async () => (fs.existsSync(path.join(folder, 'ran.txt')) ? true : undefined), 200_000);
+			const ran = await waitFor(async () => (fs.existsSync(path.join(folder, 'ran.txt')) ? true : undefined), 150_000);
 			assert.ok(ran, 'cargo test ran the test');
 			assert.ok(
-				vscode.window.terminals.some((terminal) => terminal.name === 'test adds'),
+				vscode.window.terminals.some((terminal) => terminal.name === 'test tests::writes_file'),
 				'the terminal stays open so the output can be read',
 			);
 		});
@@ -590,6 +551,26 @@ suite('Rust Test Suite', () => {
 			assert.deepStrictEqual(execution.args, ['check', '--release']);
 			assert.strictEqual(execution.options?.cwd, path.join(folder, 'src-tauri'));
 			assert.deepStrictEqual(resolved?.problemMatchers, ['$atm-rustc']);
+			assert.strictEqual(execution.options?.env?.RUSTUP_AUTO_INSTALL, '0', 'a task never makes rustup download a toolchain');
+		});
+
+		test('Rust tools never make rustup download a toolchain', async function () {
+			this.timeout(30_000);
+			// Only meaningful where rustup manages the tools and rustfmt works with the default toolchain.
+			const rustupHome = process.env.RUSTUP_HOME || path.join(os.homedir(), '.rustup');
+			if (!fs.existsSync(rustupHome) || !(await findTool('rustfmt', undefined))) {
+				this.skip();
+			}
+			// A project that pins a toolchain that is not installed (and does not exist, so nothing could download).
+			const pinned = fs.mkdtempSync(path.join(os.tmpdir(), 'atm-rust-pinned-'));
+			try {
+				fs.writeFileSync(path.join(pinned, 'rust-toolchain.toml'), '[toolchain]\nchannel = "nightly-1999-01-01"\n');
+				const started = Date.now();
+				assert.strictEqual(await findTool('rustfmt', pinned), undefined, 'the check fails instead of installing');
+				assert.ok(Date.now() - started < 10_000, 'and it fails at once');
+			} finally {
+				fs.rmSync(pinned, { recursive: true, force: true });
+			}
 		});
 	});
 });

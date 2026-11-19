@@ -26,17 +26,15 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
   - **Syntax errors while you type** (TOML 1.1), also shown inline by Error Lens. Lock files are never checked. Setting: `atm.toml.validation.enabled`.
   - **Commands**: `ATM TOML: Copy as JSON` and `Paste JSON as TOML` in TOML files; `Copy as TOML` and `Paste TOML as JSON` in JSON files.
 - **Comments Code (`06-comments-code`)**: comment tags now work in TOML files.
-- **Rust (`32-rust`) — Rust support without the rust-analyzer extension**:
-  - **Type hints** after variables (`: f64`, `: bool`, `: i32`, `: Vec<&str>`…) and **parameter names** in calls (`width:`, `height:`). Settings: `atm.rust.inlayHints.typeHints` and `atm.rust.inlayHints.parameterHints`. Hints are shown in Rust files even in editors that hide them by default, such as Antigravity.
+- **Rust (`32-rust`) — light Rust support, no rust-analyzer needed**:
+  - **Type hints** after variables whose type is clear from the value (`: f64`, `: bool`, `: i32`, `: &str`, `: Vec<&str>`…). Setting: `atm.rust.inlayHints.typeHints`. Hints are shown in Rust files even in editors that hide them by default, such as Antigravity.
   - **Underline on `mut` variables**, where they are declared and wherever they are used.
-  - **Autocomplete, info on hover, `Ctrl+click` to the definition, 💡 quick fixes and rename everywhere.**
+  - **▶ Run above `fn main()`, ▶ Run Test above each test and ▶ Run Tests above test modules.** Each runs `cargo run` or `cargo test` for exactly that program or test, also in `src/bin/`, `examples/`, `tests/` and workspaces, and for `#[tokio::test]`. Compiler errors and panics are clickable. Setting: `atm.rust.runButtons`.
   - **Format on save with rustfmt**, using the crate's edition from `Cargo.toml`.
-  - **▶ Run / Run Test buttons** above `main()` and above each test.
-  - **Rust errors and warnings on save** (`cargo check`, or `cargo clippy` with `atm.rust.checkOnSave.command`), also shown inline by Error Lens.
   - **Cargo tasks** in *Run Task*: `cargo build`, `check`, `clippy`, `test`, `clean` and `run`, also for Tauri's `src-tauri/` layout. Compiler errors in the output are clickable.
-  - **`ATM Rust: Open Docs`** opens docs.rs or the standard library docs for the item under the cursor.
-  - These features use the **rust-analyzer program** that comes with Rust (`rustup component add rust-analyzer`), not the marketplace extension. When it is missing, ATM offers to install it once (only on click), and simple type hints, the `mut` underline, rustfmt and Cargo tasks keep working without it.
-  - Stays off while the rust-analyzer extension is installed, so nothing shows twice, and only starts rust-analyzer in trusted folders. Settings: `atm.rust.enabled` and `atm.rust.serverPath`.
+  - **Light on memory**: ATM reads only the open file and its `Cargo.toml`. It never indexes the project and starts no background program.
+  - **Never downloads anything on its own**: when a project's `rust-toolchain.toml` asks for a Rust version that isn't installed, cargo and rustfmt stop with rustup's message instead of downloading it.
+  - Stays off while the rust-analyzer extension is installed, so nothing shows twice. Cargo and rustfmt only run in trusted folders. Setting: `atm.rust.enabled`.
 
 ---
 

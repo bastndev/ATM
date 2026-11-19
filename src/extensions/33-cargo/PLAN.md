@@ -17,9 +17,11 @@ Add a **Cargo Run** button to the status bar for Rust apps (the user builds cros
 
 | Need | Where | Notes |
 | --- | --- | --- |
-| Find `cargo` on PATH or `~/.cargo/bin` | `32-rust/host/toolchain.ts` → `findTool('cargo', cwd)` | Cached; `cwd` matters for `rust-toolchain.toml`. |
-| ▶ Run / Run Test above `main()` | `32-rust/ui/commands.ts` → `runSingle()` | Comes from the rust-analyzer program as a "runnable". |
-| Runnable → process | `32-rust/core/runnables.ts` → `runnableToProcess()` | `cargoArgs[0] === 'run'` means it's the app, not a test. |
+| Find `cargo` on PATH or `~/.cargo/bin` | `32-rust/host/toolchain.ts` → `findTool('cargo', cwd)`, `toolCommand('cargo')` as the fallback | Cached; `cwd` matters for `rust-toolchain.toml`. |
+| **Never let rustup download a toolchain** | `32-rust/core/rustup.ts` → `NO_AUTO_INSTALL` | Put it in the env of **every** cargo process (build, metadata, the app). Without it, a project whose `rust-toolchain.toml` pins a missing version makes rustup silently download it (zed pins 1.98.1: ~1.5 GB, happened by accident on 2026-11-18). |
+| ▶ Run / Run Test above `main()` | `32-rust/providers/runLens.ts` (buttons), `32-rust/ui/commands.ts` → `run()` (command `atm.rust.run`) | ATM's own CodeLens, found by the lexer (`core/runTargets.ts`). No rust-analyzer. |
+| Which bin/example a file belongs to | `32-rust/core/cargoTarget.ts` → `findFileTarget()` | Follows Cargo's layout and `[[bin]]` paths; checked against `cargo metadata` on the user's projects. |
+| Runnable → process | `32-rust/core/runnables.ts` → `buildRunnable()`, `runnableToProcess()` | `cargoArgs[0] === 'run'` means it's the app, not a test. |
 | Terminal without a folder | `32-rust/ui/runTerminal.ts` | Pseudoterminal; VS Code runs no tasks outside a folder. |
 | Cargo tasks + error matcher | `32-rust/providers/cargoTasks.ts`, `package.json` | Task type `atm-cargo`, matcher `$atm-rustc`. Finds `Cargo.toml` at the root or one level down (Tauri's `src-tauri/`). |
 | Kill a whole process tree | `26-27/pages/run-dev/core/process-tree.ts` | Process group on POSIX, `taskkill /T` on Windows. GUI apps spawn children, so `child.kill()` isn't enough. |
@@ -51,7 +53,7 @@ Why `build`, then launch, instead of `cargo run`: `cargo run` builds and launche
 
 ## Hand-off from 32-rust
 
-- In `32-rust/ui/commands.ts` → `runSingle()`: if the runnable is `kind: 'cargo'` and `cargoArgs[0] === 'run'`, call `vscode.commands.executeCommand('atm.cargo.run', …)` instead of starting a task.
+- In `32-rust/ui/commands.ts` → `run()`: if `cargoArgs[0] === 'run'`, call `vscode.commands.executeCommand('atm.cargo.run', …)` instead of starting a task. The runnable already says which package and `--bin`/`--example` to build.
 - Fall back to the current behaviour if `atm.cargo.run` isn't registered (e.g. the feature is turned off).
 - **Run Test stays in 32-rust.**
 - Talk through a command, not imports, so the modules stay decoupled (26-27 does the same).
@@ -59,8 +61,9 @@ Why `build`, then launch, instead of `cargo run`: `cargo run` builds and launche
 ## Gotchas to handle
 
 - **Windows locks a running `.exe`.** `cargo build` can't overwrite `target/debug/app.exe` while it runs ("Access is denied"). Launch a **copy** of the binary (e.g. under `target/debug/.atm-run/`) so the build can replace the original. Linux and macOS don't have this problem.
-- **Two cargos on one `target/` folder.** In full mode the rust-analyzer program runs `cargo check` on every save, at the same time as our build. Cargo locks `target/`, so one waits ("Blocking waiting for file lock"). Option: set `cargo: { targetDir: true }` in `32-rust/core/serverConfig.ts` so rust-analyzer uses `target/rust-analyzer/`. The cost is more disk space. **Ask the user.**
-- **Several binaries/packages.** A workspace can have many `[[bin]]`s. Use `cargo metadata --no-deps --format-version 1`, ask once with a picker, and remember the choice per workspace.
+- **rustup downloads.** Every cargo process (build, metadata, the app) gets `NO_AUTO_INSTALL` from `32-rust/core/rustup.ts`. If the project's toolchain is missing, show rustup's message; never download it silently.
+- **Two cargos on one `target/` folder.** Only if the user installs the official rust-analyzer extension: it runs `cargo check` on save while we build, and cargo locks `target/` ("Blocking waiting for file lock"). ATM itself no longer runs rust-analyzer (removed 2026-11-18), so just show cargo's message.
+- **Several binaries/packages.** A workspace can have many `[[bin]]`s. For the open file, `32-rust/core/cargoTarget.ts` → `findFileTarget()` already knows its bin. Otherwise use `cargo metadata --no-deps --format-version 1` (with `NO_AUTO_INSTALL`), ask once with a picker, and remember the choice per workspace.
 - **Which saves count:** `.rs`, `Cargo.toml` and `build.rs` inside the project folder. Never anything in `target/`.
 - **Workspace trust:** building runs code (`build.rs`, proc macros). Only when the workspace is trusted, like 32-rust.
 - **No folder open:** VS Code tasks don't work, so use a pseudoterminal (see `runTerminal.ts`). Plan to always use a pseudoterminal for the app; it's simpler.
@@ -73,8 +76,7 @@ Why `build`, then launch, instead of `cargo run`: `cargo run` builds and launche
 2. Should Cargo Run work while the **official rust-analyzer extension** is installed (32-rust is off then)? It doesn't need rust-analyzer.
 3. **Tauri:** `cargo tauri dev` / `npm run tauri dev` has its own watcher. Detect it and hand over, or ignore it for now?
 4. Is restart-on-save on by default? Setting name, e.g. `atm.cargo.run.restartOnSave`.
-5. Point 32-rust's rust-analyzer at its own target folder (see Gotchas)?
-6. Keep or remove the plain `cargo run` entry in the Cargo task list?
+5. Keep or remove the plain `cargo run` entry in the Cargo task list?
 
 ## Suggested layout (follows `AGENTS.md`)
 
@@ -105,6 +107,7 @@ Why `build`, then launch, instead of `cargo run`: `cargo run` builds and launche
 ## Working with this user
 
 - Say "**the rust-analyzer program** (part of Rust, not an extension)". They first read "rust-analyzer" as the marketplace extension and objected.
+- **Their PC has 7 GB of RAM.** rust-analyzer (1.3–2.5 GB on their projects) crashed it, so ATM no longer uses it, and they removed it from rustup. Don't add heavy background tools; ATM reads files, it doesn't index projects.
 - One module at a time. Don't touch other modules beyond the small 32-rust hand-off.
-- Never install anything without asking; an install happens only on their click.
+- Never install or download anything without asking; an install happens only on their click.
 - They want plain explanations and are planning their own IDE in Rust later, so they appreciate notes on *why* things work the way they do.

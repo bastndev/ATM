@@ -1,5 +1,6 @@
 import { CrateTarget, FileTarget } from './cargoTarget';
 import { RunTarget } from './runTargets';
+import { NO_AUTO_INSTALL } from './rustup';
 
 /**
  * What a ▶ Run button runs: one cargo command in the package folder. The
@@ -82,7 +83,7 @@ export function runnableToProcess(runnable: Runnable, cargoPath: string): Proces
 	if (runnable.executableArgs.length > 0) {
 		args.push('--', ...runnable.executableArgs);
 	}
-	return { command: cargoPath, args, cwd: runnable.cwd, env: { RUST_BACKTRACE: 'short' } };
+	return { command: cargoPath, args, cwd: runnable.cwd, env: { RUST_BACKTRACE: 'short', ...NO_AUTO_INSTALL } };
 }
 
 /** The command as it would be typed in a terminal, for the button's tooltip. */
