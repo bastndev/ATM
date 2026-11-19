@@ -26,7 +26,7 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
   - **Syntax errors while you type** (TOML 1.1), also shown inline by Error Lens. Lock files are never checked. Setting: `atm.toml.validation.enabled`.
   - **Commands**: `ATM TOML: Copy as JSON` and `Paste JSON as TOML` in TOML files; `Copy as TOML` and `Paste TOML as JSON` in JSON files.
 - **Comments Code (`06-comments-code`)**: comment tags now work in TOML files.
-- **Rust (`32-rust`) — light Rust support, no rust-analyzer needed**:
+- 🦀 **Rust (`32-rust`) — light Rust support, no rust-analyzer needed**:
   - **Type hints** after variables whose type is clear from the value (`: f64`, `: bool`, `: i32`, `: &str`, `: Vec<&str>`…). Setting: `atm.rust.inlayHints.typeHints`. Hints are shown in Rust files even in editors that hide them by default, such as Antigravity.
   - **Underline on `mut` variables**, where they are declared and wherever they are used.
   - **▶ Run above `fn main()`, ▶ Run Test above each test and ▶ Run Tests above test modules.** Each runs `cargo run` or `cargo test` for exactly that program or test, also in `src/bin/`, `examples/`, `tests/` and workspaces, and for `#[tokio::test]`. Compiler errors and panics are clickable. Setting: `atm.rust.runButtons`.
@@ -34,7 +34,16 @@ Following best practices, ATM adheres to strict semantic versioning for all upda
   - **Cargo tasks** in *Run Task*: `cargo build`, `check`, `clippy`, `test`, `clean` and `run`, also for Tauri's `src-tauri/` layout. Compiler errors in the output are clickable.
   - **Light on memory**: ATM reads only the open file and its `Cargo.toml`. It never indexes the project and starts no background program.
   - **Never downloads anything on its own**: when a project's `rust-toolchain.toml` asks for a Rust version that isn't installed, cargo and rustfmt stop with rustup's message instead of downloading it.
-  - Stays off while the rust-analyzer extension is installed, so nothing shows twice. Cargo and rustfmt only run in trusted folders. Setting: `atm.rust.enabled`.
+  - **Color picker for Rust**, like CSS: a color square before `Color32::from_rgb(10, 130, 20)`, `rgb(0xaef958)`, `"#aef958"`… and the picker on click. It writes the new color back in the same format and number style (path, hex digits, `u8`/`f32` suffixes and line breaks stay); adding transparency switches to the alpha version (`from_rgb` → `from_rgba_unmultiplied`), and clicking the picker's header cycles through the library's other formats. Supports egui (including `Color32::RED` and the other named colors), gpui (Zed), iced, Bevy, Slint, macroquad, ratatui, crossterm, sdl2, palette, plotters, image, colored, and hex or CSS colors in strings (Dioxus, Leptos). Works even while the rust-analyzer extension is installed. Setting: `atm.rust.colorPicker`.
+  - Stays off while the rust-analyzer extension is installed (except the color picker), so nothing shows twice. Cargo and rustfmt only run in trusted folders. Setting: `atm.rust.enabled`.
+- 🦀 **Cargo Run (`33-cargo`) — run your Rust app and refresh it without closing it by hand**:
+  - **▶ in the editor title** of `.rs` and `.toml` files starts the app; while it builds you see a spinner, and while it runs a ■ stops it.
+  - **`Alt+G` runs or stops, `Ctrl+G` rebuilds and restarts.** The open app is replaced **only if the new code compiles**: when the build fails, the old app keeps running and the errors are shown in the terminal and underlined in the editor.
+  - **Only one copy runs at a time.** Clicking the spinner cancels the build and leaves the running app open.
+  - Picks the right program in workspaces (like `cargo run` at the top folder) and asks once when there are several; *ATM: Cargo Run — Choose Program* changes it.
+  - Type into the terminal to send input to the app; `Ctrl+C` or closing the terminal stops it.
+  - The ▶ Run button above `fn main()` uses Cargo Run too. In a Tauri project, the keys run Cargo from a `.rs` file and Run Dev from a `.ts` file.
+  - Settings: `atm.cargo.enabled`, `atm.cargo.restartOnSave` (off by default), `atm.cargo.buildArgs`, `atm.cargo.programArgs`. Only in trusted folders; never downloads a Rust toolchain on its own.
 
 ---
 
