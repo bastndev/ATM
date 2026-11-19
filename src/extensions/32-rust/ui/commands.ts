@@ -1,6 +1,6 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { isRunnable, runnableToProcess } from '../core/runnables';
+import { isRunnable, Runnable, runnableToProcess } from '../core/runnables';
 import { findTool, toolCommand } from '../host/toolchain';
 import { CARGO_TASK_TYPE, RUST_PANIC_PROBLEM_MATCHER, RUSTC_PROBLEM_MATCHER } from '../providers/cargoTasks';
 import { RUN_COMMAND } from '../providers/runLens';
@@ -8,6 +8,9 @@ import { openRunTerminal } from './runTerminal';
 
 /** Terminals opened by Run when no folder is open, by label, so a second click replaces the first. */
 const looseTerminals = new Map<string, vscode.Terminal>();
+
+/** 33-cargo's Run, called by name so the two modules don't import each other. */
+const CARGO_RUN_COMMAND = 'atm.cargo.run';
 
 export function registerRustCommands(): vscode.Disposable[] {
 	return [
@@ -23,12 +26,16 @@ export function registerRustCommands(): vscode.Disposable[] {
 }
 
 /**
- * ▶ Run / Run Test: runs the cargo command as a task, so compiler errors and
- * panics become clickable problems. Building runs the project's own code
- * (build.rs, macros), so nothing runs in an untrusted folder.
+ * ▶ Run / Run Test: a program goes to Cargo Run (33-cargo); tests, and
+ * programs when Cargo Run is off, run as a cargo task, so compiler errors
+ * and panics become clickable problems. Building runs the project's own
+ * code (build.rs, macros), so nothing runs in an untrusted folder.
  */
 async function run(runnable: unknown): Promise<void> {
 	if (!isRunnable(runnable) || !vscode.workspace.isTrusted) {
+		return;
+	}
+	if (runnable.cargoArgs[0] === 'run' && (await handOffToCargoRun(runnable))) {
 		return;
 	}
 	const cargo = (await findTool('cargo', runnable.cwd)) ?? toolCommand('cargo');
@@ -63,4 +70,17 @@ async function run(runnable: unknown): Promise<void> {
 	);
 	task.presentationOptions = { clear: true, focus: false, reveal: vscode.TaskRevealKind.Always };
 	await vscode.tasks.executeTask(task);
+}
+
+/**
+ * A program (not a test) goes to Cargo Run, which keeps a single copy
+ * running and restarts it with Ctrl+G. False when Cargo Run is turned off
+ * or not loaded; then the program runs as a plain cargo task.
+ */
+async function handOffToCargoRun(runnable: Runnable): Promise<boolean> {
+	try {
+		return (await vscode.commands.executeCommand<boolean>(CARGO_RUN_COMMAND, runnable)) === true;
+	} catch {
+		return false;
+	}
 }

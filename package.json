@@ -346,6 +346,40 @@
         "icon": "$(globe)"
       },
       {
+        "command": "atm.cargo.run",
+        "title": "ATM: Cargo Run",
+        "icon": {
+          "light": "src/extensions/33-cargo/assets/svg/play-light.svg",
+          "dark": "src/extensions/33-cargo/assets/svg/play-dark.svg"
+        }
+      },
+      {
+        "command": "atm.cargo.stop",
+        "title": "ATM: Cargo Stop",
+        "icon": {
+          "light": "src/extensions/33-cargo/assets/svg/stop-light.svg",
+          "dark": "src/extensions/33-cargo/assets/svg/stop-dark.svg"
+        }
+      },
+      {
+        "command": "atm.cargo.toggle",
+        "title": "ATM: Cargo Run / Stop"
+      },
+      {
+        "command": "atm.cargo.restart",
+        "title": "ATM: Cargo Restart (Rebuild and Swap)",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "atm.cargo.selectProgram",
+        "title": "ATM: Cargo Run — Choose Program"
+      },
+      {
+        "command": "atm.cargo.showOutput",
+        "title": "ATM: Cargo Run — Show Output",
+        "icon": "$(terminal)"
+      },
+      {
         "command": "atm.formatter.formatDocument",
         "title": "ATM Formatter: Format Document",
         "icon": "$(paint)"
@@ -976,6 +1010,32 @@
           "type": "boolean",
           "default": true,
           "description": "Show ▶ Run above fn main() and ▶ Run Test / Run Tests above tests. A click runs cargo for that program or test only. Only in trusted folders."
+        },
+        "atm.cargo.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Turn on Cargo Run: the ▶ / ■ button in the title of Rust and Cargo files, Alt+G to run or stop and Ctrl+G to rebuild. A rebuild replaces the running program only when the new code compiles; if it doesn't, the old program keeps running and the errors are shown. Only one copy runs at a time. Only in trusted folders."
+        },
+        "atm.cargo.restartOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Rebuild and restart the running program whenever a .rs file, Cargo.toml or Cargo.lock of its workspace is saved. Off by default: Ctrl+G restarts when you are ready, so saving halfway through a change doesn't close your window."
+        },
+        "atm.cargo.buildArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Extra arguments for cargo build, such as [\"--release\"] or [\"--features\", \"dev\"]."
+        },
+        "atm.cargo.programArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Arguments passed to the program, like the ones after -- in cargo run -- …"
         }
       }
     },
@@ -1149,17 +1209,38 @@
       {
         "command": "atm.runDev.start",
         "key": "alt+g",
-        "mac": "alt+g"
+        "mac": "alt+g",
+        "when": "!atm.cargo.project"
       },
       {
         "command": "atm.runDev.restart",
         "key": "ctrl+g",
-        "mac": "ctrl+g"
+        "mac": "ctrl+g",
+        "when": "!atm.cargo.project"
       },
       {
         "command": "atm.runDev.stop",
         "key": "ctrl+alt+g",
-        "mac": "ctrl+alt+g"
+        "mac": "ctrl+alt+g",
+        "when": "!atm.cargo.project"
+      },
+      {
+        "command": "atm.cargo.toggle",
+        "key": "alt+g",
+        "mac": "alt+g",
+        "when": "atm.cargo.project"
+      },
+      {
+        "command": "atm.cargo.restart",
+        "key": "ctrl+g",
+        "mac": "ctrl+g",
+        "when": "atm.cargo.project"
+      },
+      {
+        "command": "atm.cargo.stop",
+        "key": "ctrl+alt+g",
+        "mac": "ctrl+alt+g",
+        "when": "atm.cargo.project && atm.cargo.running"
       }
     ],
     "languages": [
@@ -1211,6 +1292,14 @@
         {
           "command": "atm.toml.pasteAsJson",
           "when": "(editorLangId == json || editorLangId == jsonc) && !editorReadonly"
+        },
+        {
+          "command": "atm.cargo.stop",
+          "when": "atm.cargo.running"
+        },
+        {
+          "command": "atm.cargo.showOutput",
+          "when": "config.atm.cargo.enabled"
         }
       ],
       "editor/context": [
@@ -1248,6 +1337,16 @@
         }
       ],
       "editor/title": [
+        {
+          "command": "atm.cargo.run",
+          "group": "navigation@-2",
+          "when": "atm.cargo.project && !atm.cargo.running && (resourceExtname == .rs || resourceExtname == .toml || resourceFilename == Cargo.lock || resourceFilename == rust-toolchain)"
+        },
+        {
+          "command": "atm.cargo.stop",
+          "group": "navigation@-2",
+          "when": "atm.cargo.project && atm.cargo.running && (resourceExtname == .rs || resourceExtname == .toml || resourceFilename == Cargo.lock || resourceFilename == rust-toolchain)"
+        },
         {
           "command": "atm.ira.open",
           "group": "navigation@-1",
