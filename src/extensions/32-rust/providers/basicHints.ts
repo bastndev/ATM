@@ -3,8 +3,9 @@ import { findLetTypeHints } from '../core/literalTypes';
 import { RustTokenCache } from './tokenCache';
 
 /**
- * `: f64`, `: bool`, `: &str`… after `let` when rust-analyzer is not running.
- * Only obvious types are shown; rust-analyzer replaces these with exact ones.
+ * `: f64`, `: bool`, `: &str`… after `let`. Only types that are obvious from
+ * the value are shown; anything else, such as a function's result, gets no
+ * hint rather than a guess.
  */
 export class BasicTypeHintsProvider implements vscode.InlayHintsProvider {
 	constructor(private readonly tokens: RustTokenCache) {}
@@ -16,7 +17,7 @@ export class BasicTypeHintsProvider implements vscode.InlayHintsProvider {
 			.filter((hint) => hint.offset >= start && hint.offset <= end)
 			.map((hint) => {
 				const inlay = new vscode.InlayHint(document.positionAt(hint.offset), hint.label, vscode.InlayHintKind.Type);
-				inlay.tooltip = vscode.l10n.t('Simple type guess. Install rust-analyzer for exact types.');
+				inlay.tooltip = vscode.l10n.t('Type of the value, read from the code.');
 				return inlay;
 			});
 	}

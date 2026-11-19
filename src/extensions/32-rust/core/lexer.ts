@@ -1,7 +1,7 @@
 /**
- * A small Rust tokenizer for the features that work without rust-analyzer
- * (simple type hints and the `mut` underline). It knows enough to never
- * mistake comments, strings, chars or lifetimes for code; it does not parse.
+ * A small Rust tokenizer for ATM's Rust features (type hints, the `mut`
+ * underline and the Run buttons). It knows enough to never mistake
+ * comments, strings, chars or lifetimes for code; it does not parse.
  */
 
 export type TokenKind = 'ident' | 'lifetime' | 'number' | 'string' | 'char' | 'punct';

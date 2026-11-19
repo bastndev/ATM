@@ -1,7 +1,7 @@
 import { isIdent, isPunct, KEYWORDS, Token } from './lexer';
 
 /**
- * Type hints without rust-analyzer: `let x = 6.5;` gets `: f64`. Only
+ * Type hints read from the code: `let x = 6.5;` gets `: f64`. Only
  * initializers whose type is obvious from the text are covered (literals,
  * `String::from`, `vec![...]`, arrays and tuples of those). Anything else,
  * such as a function call, gets no hint rather than a guess.

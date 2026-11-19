@@ -5,8 +5,8 @@ import { RustTokenCache } from './tokenCache';
 const DEBOUNCE_MS = 150;
 
 /**
- * Underlines `mut` variables when rust-analyzer is not running. With
- * rust-analyzer, the same underline comes from its semantic colors instead.
+ * Underlines `mut` variables where they are declared and wherever they are
+ * used, so values that can change stand out.
  */
 export class MutUnderline implements vscode.Disposable {
 	private readonly decoration = vscode.window.createTextEditorDecorationType({ textDecoration: 'underline' });

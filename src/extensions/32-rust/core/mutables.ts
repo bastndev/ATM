@@ -1,7 +1,7 @@
 import { enclosingBraces, isIdent, isPunct, KEYWORDS, matchBraces, Token } from './lexer';
 
 /**
- * The `mut` underline without rust-analyzer: every variable declared with
+ * The `mut` underline, read from the code: every variable declared with
  * `mut` is underlined where it is declared and where it is used, so values
  * that can change stand out. Scopes are followed by braces, and a later
  * `let` with the same name (shadowing) ends the underline.

@@ -5,9 +5,8 @@ import { DEFAULT_EDITION, readEdition } from '../core/edition';
 import { findTool, runRustfmt } from '../host/toolchain';
 
 /**
- * Formatting with rustfmt when rust-analyzer is not running (rust-analyzer
- * formats with rustfmt itself when it is). Only used in trusted folders,
- * because rustup may run a toolchain the project points to.
+ * Formatting with rustfmt. Only used in trusted folders, because rustup may
+ * run a toolchain the project points to.
  */
 export class RustfmtFormatter implements vscode.DocumentFormattingEditProvider {
 	async provideDocumentFormattingEdits(document: vscode.TextDocument): Promise<vscode.TextEdit[]> {

@@ -3,13 +3,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { renameServerCommand } from '../extensions/32-rust/core/commandMap';
+import { CrateTarget, FileTarget, findFileTarget, ProjectFiles } from '../extensions/32-rust/core/cargoTarget';
 import { readEdition } from '../extensions/32-rust/core/edition';
 import { tokenizeRust } from '../extensions/32-rust/core/lexer';
 import { findLetTypeHints } from '../extensions/32-rust/core/literalTypes';
 import { findMutableSpans } from '../extensions/32-rust/core/mutables';
-import { runnableToProcess } from '../extensions/32-rust/core/runnables';
-import { buildServerConfig } from '../extensions/32-rust/core/serverConfig';
+import { buildRunnable, commandLine, isRunnable, runnableToProcess } from '../extensions/32-rust/core/runnables';
+import { findRunTargets, RunTarget } from '../extensions/32-rust/core/runTargets';
 import { findTool } from '../extensions/32-rust/host/toolchain';
 import { CARGO_TASK_TYPE, CargoTaskProvider } from '../extensions/32-rust/providers/cargoTasks';
 import { findEdition } from '../extensions/32-rust/providers/rustfmt';
@@ -30,6 +30,42 @@ function underlined(source: string): string[] {
 	return findMutableSpans(tokenizeRust(source))
 		.sort((a, b) => a.start - b.start)
 		.map((span) => `${source.slice(span.start, span.end)}@${source.slice(0, span.start).split('\n').length - 1}`);
+}
+
+/** `kind path@line` for every Run button, in order. */
+function buttons(source: string): string[] {
+	return findRunTargets(tokenizeRust(source)).map(
+		(target) => `${target.kind} ${target.path.join('::')}@${source.slice(0, target.offset).split('\n').length - 1}`,
+	);
+}
+
+/** A project that exists only in memory; keys are paths relative to `root`. */
+function memoryProject(root: string, project: Record<string, string>): ProjectFiles {
+	const files = new Map(Object.entries(project).map(([file, text]) => [path.join(root, ...file.split('/')), text]));
+	return { read: async (file) => files.get(file) };
+}
+
+/** `kind:name module::path` for the target a file belongs to, or `none`. */
+async function targetOf(root: string, files: ProjectFiles, file: string): Promise<string> {
+	const found = await findFileTarget(path.join(root, ...file.split('/')), files);
+	if (!found) {
+		return 'none';
+	}
+	const { kind, name, requiredFeatures, harness } = found.target;
+	const extras = [...requiredFeatures.map((feature) => `+${feature}`), ...(harness ? [] : ['no-harness'])];
+	return [`${kind}:${name}`, found.modulePath.join('::'), ...extras].filter((part) => part.length > 0).join(' ');
+}
+
+/** The cargo command a button runs, or undefined when it shows no button. */
+function commandFor(target: RunTarget, crate: Partial<CrateTarget> & Pick<CrateTarget, 'kind' | 'name'>, modulePath: string[] = []): string | undefined {
+	const file: FileTarget = {
+		packageName: 'app',
+		packageDir: '/work/app',
+		target: { requiredFeatures: [], harness: true, ...crate },
+		modulePath,
+	};
+	const runnable = buildRunnable(target, file);
+	return runnable && commandLine(runnable);
 }
 
 async function waitFor<T>(probe: () => Promise<T | undefined>, timeoutMs: number): Promise<T | undefined> {
@@ -76,7 +112,7 @@ suite('Rust Test Suite', () => {
 		});
 	});
 
-	suite('type hints without rust-analyzer', () => {
+	suite('type hints', () => {
 		test('shows the type of simple values', () => {
 			const source = [
 				'let my_float = 6.5;',
@@ -136,7 +172,7 @@ suite('Rust Test Suite', () => {
 		});
 	});
 
-	suite('mut underline without rust-analyzer', () => {
+	suite('mut underline', () => {
 		test('underlines the declaration and every use in scope', () => {
 			const source = [
 				'fn main() {', // 0
@@ -209,64 +245,176 @@ suite('Rust Test Suite', () => {
 		});
 	});
 
-	suite('rust-analyzer connection', () => {
-		test('turns a Run button into the cargo command', () => {
-			const spec = runnableToProcess(
-				{
-					label: 'test tests::adds',
-					kind: 'cargo',
-					args: {
-						workspaceRoot: '/project',
-						cwd: '/project/crate',
-						cargoArgs: ['test', '--package', 'app', '--lib'],
-						executableArgs: ['tests::adds', '--exact'],
-						environment: { APP_MODE: 'test' },
-					},
-				},
-				'/home/me/.cargo/bin/cargo',
-			);
-			assert.deepStrictEqual(spec, {
-				command: '/home/me/.cargo/bin/cargo',
-				args: ['test', '--package', 'app', '--lib', '--', 'tests::adds', '--exact'],
-				cwd: '/project',
-				env: { RUST_BACKTRACE: 'short', APP_MODE: 'test' },
+	suite('Run buttons', () => {
+		test('finds main(), tests and the modules that hold them', () => {
+			const source = [
+				'fn main() {', // 0
+				'    println!("#[test] fn in_a_string() {}");', // 1
+				'}', // 2
+				'// #[test] fn commented_out() {}', // 3
+				'#[cfg(test)]', // 4
+				'mod tests {', // 5
+				'    use super::*;', // 6
+				'    #[test]', // 7
+				'    fn adds() {}', // 8
+				'    #[tokio::test(flavor = "multi_thread")]', // 9
+				'    pub(crate) async fn fetches() {}', // 10
+				'    #[test]', // 11
+				'    #[should_panic(expected = "boom")]', // 12
+				'    fn panics() {}', // 13
+				'    mod nested {', // 14
+				'        #[test]', // 15
+				'        fn deep() {}', // 16
+				'    }', // 17
+				'    fn helper() {}', // 18
+				'}', // 19
+			].join('\n');
+			assert.deepStrictEqual(buttons(source), [
+				'main @0',
+				'testModule tests@5',
+				'test tests::adds@8',
+				'test tests::fetches@10',
+				'test tests::panics@13',
+				'testModule tests::nested@14',
+				'test tests::nested::deep@16',
+			]);
+		});
+
+		test('skips what cargo cannot run on its own', () => {
+			const source = [
+				'mod app {', // a main() inside a module is not the program's entry point
+				'    fn main() {}',
+				'}',
+				'fn outer() {', // the test runner never sees tests inside a function
+				'    #[test]',
+				'    fn inner() {}',
+				'}',
+				'impl Point {',
+				'    #[test]',
+				'    fn method() {}',
+				'}',
+				'#[cfg(test)]', // `cfg(test)` is not a test attribute
+				'struct Fixture;',
+				'fn after_struct() {}',
+				'mod helpers {',
+				'    #![cfg(test)]', // an inner attribute belongs to the module
+				'    fn build() {}',
+				'}',
+				'#[test_case(1)]', // only attributes ending in `test` mark a test
+				'fn case() {}',
+			].join('\n');
+			assert.deepStrictEqual(buttons(source), []);
+		});
+
+		test('knows which cargo target each file belongs to', async () => {
+			const root = path.join(os.tmpdir(), 'atm-rust-layout');
+			const files = memoryProject(root, {
+				'Cargo.toml': [
+					'[package]',
+					'name = "app"',
+					'version = "0.1.0"',
+					'',
+					'[[bin]]',
+					'name = "server"',
+					'path = "cmd/server.rs"',
+					'required-features = ["net"]',
+					'',
+					'[[test]]',
+					'name = "smoke"',
+					'path = "checks/smoke.rs"',
+					'harness = false',
+				].join('\n'),
+				'build.rs': 'fn main() {}',
+				'src/main.rs': 'mod cli;\nfn main() {}',
+				'src/lib.rs': 'pub mod utils;\n#[cfg(test)]\nmod tests { }',
+				'src/cli.rs': '',
+				'src/utils/mod.rs': 'pub mod math;',
+				'src/utils/math.rs': '',
+				'src/orphan.rs': '',
+				'src/bin/tool.rs': '',
+				'src/bin/multi/main.rs': 'mod helper;\nfn main() {}',
+				'src/bin/multi/helper.rs': '',
+				'examples/demo.rs': '',
+				'tests/api.rs': '',
+				'tests/common/mod.rs': '',
+				'cmd/server.rs': '',
+				'checks/smoke.rs': '',
 			});
-		});
-
-		test('sends ATM settings in the shape rust-analyzer reads', () => {
-			const config = buildServerConfig({ checkCommand: 'clippy', typeHints: true, parameterHints: false }) as {
-				check: { command: string };
-				inlayHints: { typeHints: { enable: boolean }; parameterHints: { enable: boolean } };
-				lens: { run: { enable: boolean }; debug: { enable: boolean } };
+			const expected: Record<string, string> = {
+				'src/main.rs': 'bin:app',
+				'src/lib.rs': 'lib:app',
+				'src/cli.rs': 'bin:app cli', // declared by main.rs only
+				'src/utils/mod.rs': 'lib:app utils',
+				'src/utils/math.rs': 'lib:app utils::math',
+				'src/orphan.rs': 'none', // no `mod orphan;` anywhere, so cargo never compiles it
+				'src/bin/tool.rs': 'bin:tool',
+				'src/bin/multi/main.rs': 'bin:multi',
+				'src/bin/multi/helper.rs': 'bin:multi helper',
+				'examples/demo.rs': 'example:demo',
+				'tests/api.rs': 'test:api',
+				'tests/common/mod.rs': 'none', // shared code for tests, not a test of its own
+				'cmd/server.rs': 'bin:server +net',
+				'checks/smoke.rs': 'test:smoke no-harness',
+				'build.rs': 'none',
 			};
-			assert.strictEqual(config.check.command, 'clippy');
-			assert.strictEqual(config.inlayHints.typeHints.enable, true);
-			assert.strictEqual(config.inlayHints.parameterHints.enable, false);
-			assert.strictEqual(config.lens.run.enable, true);
-			assert.strictEqual(config.lens.debug.enable, false);
-		});
-
-		test('renames server commands to ATM commands', () => {
-			assert.strictEqual(renameServerCommand({ command: 'rust-analyzer.runSingle' })?.command, 'atm.rust.runSingle');
-			assert.strictEqual(renameServerCommand({ command: 'editor.action.rename' })?.command, 'editor.action.rename');
-		});
-
-		test('every command rust-analyzer can send is registered', async () => {
-			const extension = vscode.extensions.getExtension(extensionId);
-			await extension?.activate();
-			const commands = await vscode.commands.getCommands(true);
-			for (const id of [
-				'atm.rust.runSingle',
-				'atm.rust.showReferences',
-				'atm.rust.gotoLocation',
-				'atm.rust.triggerParameterHints',
-				'atm.rust.rename',
-				'atm.rust.openDocs',
-				'atm.rust.restartServer',
-				'atm.rust.installServer',
-			]) {
-				assert.ok(commands.includes(id), `${id} is registered`);
+			for (const [file, target] of Object.entries(expected)) {
+				assert.strictEqual(await targetOf(root, files, file), target, file);
 			}
+			assert.strictEqual(await findFileTarget(path.join(os.tmpdir(), 'atm-rust-loose', 'main.rs'), files), undefined, 'no Cargo.toml above');
+		});
+
+		test('handles workspaces and turned-off auto discovery', async () => {
+			const root = path.join(os.tmpdir(), 'atm-rust-workspace');
+			const files = memoryProject(root, {
+				'Cargo.toml': '[workspace]\nmembers = ["crates/*"]\n',
+				'stray.rs': 'fn main() {}',
+				'crates/engine/Cargo.toml': '[package]\nname = "engine"\nversion = "0.1.0"\nautobins = false\n',
+				'crates/engine/src/lib.rs': '#[cfg(test)]\nmod tests;\n',
+				'crates/engine/src/tests.rs': '',
+				'crates/engine/src/bin/extra.rs': 'fn main() {}',
+			});
+			assert.strictEqual(await targetOf(root, files, 'crates/engine/src/tests.rs'), 'lib:engine tests');
+			assert.strictEqual(await targetOf(root, files, 'crates/engine/src/bin/extra.rs'), 'none', 'autobins = false');
+			assert.strictEqual(await targetOf(root, files, 'stray.rs'), 'none', 'a workspace-only Cargo.toml has no package');
+			const found = await findFileTarget(path.join(root, 'crates', 'engine', 'src', 'lib.rs'), files);
+			assert.strictEqual(found?.packageDir, path.join(root, 'crates', 'engine'), 'cargo runs in the package folder');
+		});
+
+		test('builds the same cargo commands as rust-analyzer', () => {
+			const main: RunTarget = { kind: 'main', offset: 0, path: [] };
+			const adds: RunTarget = { kind: 'test', offset: 0, path: ['tests', 'adds'] };
+			const tests: RunTarget = { kind: 'testModule', offset: 0, path: ['tests'] };
+
+			assert.strictEqual(commandFor(main, { kind: 'bin', name: 'app' }), 'cargo run --package app --bin app');
+			assert.strictEqual(commandFor(main, { kind: 'example', name: 'demo' }), 'cargo run --package app --example demo');
+			assert.strictEqual(commandFor(main, { kind: 'test', name: 'smoke', harness: false }), 'cargo test --package app --test smoke');
+			assert.strictEqual(commandFor(main, { kind: 'lib', name: 'app' }), undefined, 'a library has no program to run');
+			assert.strictEqual(commandFor(main, { kind: 'bin', name: 'app' }, ['cli']), undefined, 'main() in a module file');
+			assert.strictEqual(commandFor(main, { kind: 'test', name: 'api' }), undefined, 'the test harness brings its own main()');
+
+			assert.strictEqual(
+				commandFor(adds, { kind: 'lib', name: 'app' }, ['utils']),
+				'cargo test --package app --lib -- utils::tests::adds --exact --nocapture --include-ignored',
+			);
+			assert.strictEqual(
+				commandFor(adds, { kind: 'bin', name: 'server', requiredFeatures: ['net', 'tls'] }),
+				'cargo test --package app --bin server --features net,tls -- tests::adds --exact --nocapture --include-ignored',
+			);
+			assert.strictEqual(commandFor(tests, { kind: 'lib', name: 'app' }), 'cargo test --package app --lib -- tests:: --nocapture');
+			assert.strictEqual(commandFor(adds, { kind: 'test', name: 'smoke', harness: false }), undefined, 'no harness, no tests');
+		});
+
+		test('turns a runnable into the cargo process', () => {
+			const runnable = { label: 'test tests::adds', cwd: '/work/app', cargoArgs: ['test', '--lib'], executableArgs: ['tests::adds', '--exact'] };
+			assert.ok(isRunnable(runnable));
+			assert.ok(!isRunnable({ label: 'run app' }), 'arguments from elsewhere are checked');
+			assert.ok(!isRunnable({ ...runnable, cargoArgs: [] }));
+			assert.deepStrictEqual(runnableToProcess(runnable, '/home/me/.cargo/bin/cargo'), {
+				command: '/home/me/.cargo/bin/cargo',
+				args: ['test', '--lib', '--', 'tests::adds', '--exact'],
+				cwd: '/work/app',
+				env: { RUST_BACKTRACE: 'short' },
+			});
 		});
 	});
 

@@ -4,6 +4,8 @@ import { findTool } from '../host/toolchain';
 
 export const CARGO_TASK_TYPE = 'atm-cargo';
 export const RUSTC_PROBLEM_MATCHER = '$atm-rustc';
+/** Turns `thread 'main' panicked at src/main.rs:4:5:` into a clickable problem. */
+export const RUST_PANIC_PROBLEM_MATCHER = '$atm-rust-panic';
 const TASK_SOURCE = 'ATM Rust';
 
 interface CargoTaskDefinition extends vscode.TaskDefinition {
