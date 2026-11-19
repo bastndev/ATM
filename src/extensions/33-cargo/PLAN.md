@@ -23,8 +23,8 @@ It starts the executable itself (not `cargo run`) because `cargo run` would have
 
 | Topic | Decision | Why |
 | --- | --- | --- |
-| Buttons | **editor title**, left of the ATM ghost (`navigation@-2`): green ▶ when idle, green spinning squares while building, red ■ while the program runs. SVGs in `assets/svg/` (VS Code's debug colours, light + dark) | The user's request; menu codicons can't be coloured. A **stop** square, not pause: it ends the program and can't be resumed |
-| Spinner | 8 small squares fading like a comet tail, turned in 8 **discrete** 45° steps by SMIL (`calcMode="discrete"`, 0.8 s) | About 10 repaints a second, nothing interpolated, so it costs almost nothing. Green = "on its way to ▶" |
+| Buttons | **editor title**, left of the ATM ghost (`navigation@-2`): blue ▶ when idle, blue spinning squares while building, Rust-orange ■ while the program runs. SVGs in `assets/svg/`: dark themes `#0090FF` (the Lynx NVIM accent: focusBorder / progressBar) and `#FF7043` (the Rust file icon's orange); light themes `#0069D1` / `#E64A19` for contrast | The user's request. File icons can't follow the theme (VS Code draws them as images) and menu codicons can't be coloured, so the theme's colours are used directly. A **stop** square, not pause: it ends the program and can't be resumed |
+| Spinner | 8 small squares fading like a comet tail, turned in 8 **discrete** 45° steps by SMIL (`calcMode="discrete"`, 0.8 s) | About 10 repaints a second, nothing interpolated, so it costs almost nothing. Blue like ▶: "on its way to ▶" |
 | Clicking the spinner | Cancels **only the build** (`atm.cargo.cancelBuild`); a running program keeps running. Alt+G still stops everything | You see the spinner while refreshing; cancelling a refresh shouldn't close your app |
 | Where ▶ shows | `.rs`, any `.toml`, `Cargo.lock`, `rust-toolchain`, and only when the file is inside a Cargo project (`atm.cargo.project`) | The user's request: only Rust/Cargo files |
 | Keys | **Alt+G** run/stop (toggle), **Ctrl+G** restart, Ctrl+Alt+G stop | Same keys as Run Dev (JS), so there's one habit to learn |
